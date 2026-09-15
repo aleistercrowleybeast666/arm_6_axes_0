@@ -1,0 +1,11 @@
+{
+  "version":"2.0.0",
+  "tasks":[
+    {"label":"Firmware configure","type":"process","command":"cmake","args":["--preset","firmware"],"problemMatcher":[]},
+    {"label":"Firmware build","type":"process","command":"cmake","args":["--build","--preset","firmware"],"dependsOn":"Firmware configure","problemMatcher":"$gcc","group":{"kind":"build","isDefault":true}},
+    {"label":"Host configure","type":"process","command":"cmake","args":["--preset","host"],"problemMatcher":[]},
+    {"label":"Host build","type":"process","command":"cmake","args":["--build","--preset","host"],"dependsOn":"Host configure","problemMatcher":"$gcc"},
+    {"label":"Host tests","type":"process","command":"ctest","args":["--preset","host"],"dependsOn":"Host build","problemMatcher":[]},
+    {"label":"Flash CMSIS-DAP","type":"process","command":"openocd","args":["-f","openocd.cfg","-c","program build/firmware/arm_6_axes_0.elf verify reset exit"],"dependsOn":"Firmware build","problemMatcher":[]}
+  ]
+}

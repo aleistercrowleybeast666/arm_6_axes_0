@@ -1,0 +1,7 @@
+{
+  "version":"0.2.0",
+  "configurations":[
+    {"name":"CMSIS-DAP Cortex Debug","type":"cortex-debug","request":"launch","servertype":"openocd","cwd":"${workspaceFolder}","executable":"${workspaceFolder}/build/firmware/arm_6_axes_0.elf","configFiles":["${workspaceFolder}/openocd.cfg"],"runToEntryPoint":"main","preLaunchTask":"Firmware build"},
+    {"name":"EIDE Debug CMSIS-DAP","type":"cortex-debug","request":"launch","servertype":"openocd","cwd":"${workspaceFolder}","executable":"${workspaceFolder}/build/eide/Debug/arm_6_axes_0.elf","configFiles":["${workspaceFolder}/openocd.cfg"],"runToEntryPoint":"main"}
+  ]
+}

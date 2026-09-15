@@ -1,0 +1,5 @@
+{
+  "folders": [{"path":"."}],
+  "settings": {"files.encoding":"utf8","C_Cpp.default.compileCommands":"${workspaceFolder}/build/firmware/compile_commands.json"},
+  "extensions": {"recommendations":["cl.eide","marus25.cortex-debug","ms-vscode.cmake-tools"]}
+}

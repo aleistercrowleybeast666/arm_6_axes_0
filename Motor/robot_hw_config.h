@@ -1,0 +1,21 @@
+#ifndef __ROBOT_HW_CONFIG_H
+#define __ROBOT_HW_CONFIG_H
+#include "cybergear_types.h"
+/* All physical IDs, zero offsets, signs, gains and profile must be commissioned. */
+#ifndef ARM_ENABLE_MOTOR_OUTPUT
+#define ARM_ENABLE_MOTOR_OUTPUT 0
+#endif
+#define ARM_MOTOR_TX_ARMED ARM_ENABLE_MOTOR_OUTPUT
+#define MOTOR_J1_ID CYBERGEAR_UNASSIGNED_ID
+#define MOTOR_J2_ID CYBERGEAR_UNASSIGNED_ID
+#define MOTOR_J3_ID CYBERGEAR_UNASSIGNED_ID
+#define MOTOR_J4_ID CYBERGEAR_UNASSIGNED_ID
+#define MOTOR_J5_ID CYBERGEAR_UNASSIGNED_ID
+#define MOTOR_J6_ID CYBERGEAR_UNASSIGNED_ID
+#define ROBOT_HOST_CAN_ID 0U
+#define MOTOR_FEEDBACK_TIMEOUT_MS 100U
+#define MOTOR_MAX_TEMPERATURE_C 60.0f /* conservative development trip; validate on hardware */
+#define ROBOT_CONTROL_PERIOD_MS 5U
+#define ROBOT_SUPERVISOR_PERIOD_MS 10U
+#define MOTOR_ENABLE_TIMEOUT_MS 100U
+#endif

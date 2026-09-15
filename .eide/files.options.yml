@@ -1,0 +1,7 @@
+version: "2.1"
+options:
+  Debug:
+    files:
+      'Drivers/STM32F4xx_HAL_Driver/**/*.c': '-Wno-unused-parameter'
+      'Middlewares/**/*.c': '-Wno-unused-parameter'
+    virtualPathFiles: {}
