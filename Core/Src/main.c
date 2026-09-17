@@ -20,6 +20,12 @@
 #include "main.h"
 #include "cmsis_os.h"
 #include "can.h"
+#include "dma.h"
+#include "fatfs.h"
+#include "i2c.h"
+#include "sdio.h"
+#include "tim.h"
+#include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -90,7 +96,13 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
+  MX_SDIO_SD_Init();
+  MX_I2C1_Init();
+  MX_USART1_UART_Init();
+  /* StorageTask owns FatFs initialization. */
   MX_CAN1_Init();
+  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
   App_Init();
 /* USER CODE END 2 */

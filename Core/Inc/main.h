@@ -57,6 +57,20 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define UI_FORWARD_Pin GPIO_PIN_2
+#define UI_FORWARD_GPIO_Port GPIOE
+#define UI_BACK_Pin GPIO_PIN_3
+#define UI_BACK_GPIO_Port GPIOE
+#define SOFT_STOP_Pin GPIO_PIN_4
+#define SOFT_STOP_GPIO_Port GPIOE
+#define SOFT_STOP_EXTI_IRQn EXTI4_IRQn
+#define TF_DETECT_Pin GPIO_PIN_7
+#define TF_DETECT_GPIO_Port GPIOC
+#define HX711_DOUT_Pin GPIO_PIN_0
+#define HX711_DOUT_GPIO_Port GPIOE
+#define HX711_DOUT_EXTI_IRQn EXTI0_IRQn
+#define HX711_SCK_Pin GPIO_PIN_1
+#define HX711_SCK_GPIO_Port GPIOE
 
 /* USER CODE BEGIN Private defines */
 

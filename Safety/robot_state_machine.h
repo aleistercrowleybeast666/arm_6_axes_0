@@ -8,7 +8,9 @@ typedef enum
     ROBOT_READY,
     ROBOT_RUNNING,
     ROBOT_FAULT,
-    ROBOT_ESTOP_RESERVED
+    ROBOT_ESTOP_RESERVED,
+    ROBOT_STARTUP,
+    ROBOT_SOFT_STOPPED
 } RobotState;
 typedef struct
 {

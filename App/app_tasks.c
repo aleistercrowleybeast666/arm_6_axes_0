@@ -1,25 +1,26 @@
 #include "app_main.h"
+#include "app_snapshot.h"
+#include "service_tasks.h"
 #include "app_config.h"
 #include "robot_control.h"
 #include "robot_hw_config.h"
 #include "bsp_can.h"
 #include "can_transport.h"
 #include "platform_lock.h"
+#include "board_config.h"
 #include "FreeRTOS.h"
 #include "task.h"
-#include "queue.h"
 #include "stm32f4xx_hal.h"
 static StaticTask_t control_tcb, can_tcb, supervisor_tcb;
 static StackType_t control_stack[APP_CONTROL_STACK_WORDS], can_stack[APP_CAN_STACK_WORDS],
     supervisor_stack[APP_SUPERVISOR_STACK_WORDS];
-static StaticQueue_t command_control;
-static uint8_t command_storage[APP_COMMAND_QUEUE_DEPTH * sizeof(RobotCommand)];
-static QueueHandle_t command_queue;
 static RobotControl robot;
+static OperationManager operation;
+static AppSnapshot app_snapshot;
+static volatile bool soft_stop_latched;
 static RobotState published_state;
-static ArmResult pending_fault, last_command_result;
-static uint32_t last_sequence, control_heartbeat;
-static bool stop_requested;
+static ArmResult pending_fault;
+static uint32_t control_heartbeat;
 static volatile AppFatalReason fatal_reason;
 void Platform_EnterCritical(void)
 {
@@ -57,35 +58,27 @@ RobotState App_GetRobotState(void)
 }
 ArmResult RobotCommand_GetLastResult(uint32_t *sequence)
 {
-    taskENTER_CRITICAL();
-    if (sequence != NULL)
-        *sequence = last_sequence;
-    ArmResult r = last_command_result;
-    taskEXIT_CRITICAL();
-    return r;
+    if (sequence)
+        *sequence = 0;
+    return ARM_OUTPUT_DISABLED;
 }
 ArmResult RobotCommand_Submit(const RobotCommand *cmd)
 {
-    if (cmd == NULL || (unsigned)cmd->type > ROBOT_CMD_CLEAR_FAULT || command_queue == NULL)
-        return ARM_INVALID_ARGUMENT;
-    if (cmd->type == ROBOT_CMD_JOINT_MOVE && !RobotMath_IsFiniteJoint(&cmd->target_rad))
-        return ARM_INVALID_ARGUMENT;
-    if (cmd->type == ROBOT_CMD_DISABLE)
+    (void)cmd;
+    return ARM_OUTPUT_DISABLED; /* v0.0.2: business authority only through CommandManager. */
+}
+void App_GetSnapshot(AppSnapshot *s)
+{
+    if (s)
     {
         taskENTER_CRITICAL();
-        stop_requested = true;
-        (void)xQueueReset(command_queue);
-        last_sequence = cmd->sequence;
-        last_command_result = ARM_OK;
-        MotorManager_DisableAll();
+        *s = app_snapshot;
         taskEXIT_CRITICAL();
-        return ARM_OK;
     }
-    taskENTER_CRITICAL();
-    ArmResult r = stop_requested ? ARM_NOT_READY
-                                 : (xQueueSend(command_queue, cmd, 0) == pdPASS ? ARM_OK : ARM_QUEUE_FULL);
-    taskEXIT_CRITICAL();
-    return r;
+}
+void App_RequestSoftStopFromIsr(void)
+{
+    soft_stop_latched = true;
 }
 static void App_RequestFault(ArmResult reason)
 {
@@ -99,41 +92,49 @@ static void RobotControlTask(void *argument)
     (void)argument;
     TickType_t last = xTaskGetTickCount();
     uint32_t previous = HAL_GetTick();
+    bool stop_was_held = false;
     for (;;)
     {
         uint32_t now = HAL_GetTick();
         taskENTER_CRITICAL();
         ArmResult fault = pending_fault;
         pending_fault = ARM_OK;
-        bool stop = stop_requested;
-        stop_requested = false;
+        bool soft_stop = soft_stop_latched;
+        soft_stop_latched = false;
         taskEXIT_CRITICAL();
+        bool stop_held = HAL_GPIO_ReadPin(BOARD_INPUT_PORT, BOARD_SOFT_STOP_PIN) == GPIO_PIN_RESET;
+        soft_stop = soft_stop || (stop_held && !stop_was_held);
+        stop_was_held = stop_held;
         if (fault != ARM_OK)
         {
             RobotControl_Fault(&robot, fault);
-            (void)xQueueReset(command_queue);
-        }
-        if (stop)
-        {
-            RobotCommand c = {.type = ROBOT_CMD_DISABLE};
-            (void)RobotControl_Execute(&robot, &c, now);
+            CommandManager_Clear();
         }
         if ((uint32_t)(now - previous) > ROBOT_CONTROL_PERIOD_MS * 2U &&
-            (robot.machine.state == ROBOT_RUNNING || robot.machine.state == ROBOT_READY))
+            (robot.machine.state == ROBOT_RUNNING || robot.machine.state == ROBOT_READY ||
+             MotorManager_IsArmed()))
             RobotControl_Fault(&robot, ARM_TIMEOUT);
         previous = now;
-        RobotCommand cmd;
-        if (xQueueReceive(command_queue, &cmd, 0) == pdPASS)
+        if (soft_stop)
+            OperationManager_SoftStop(&operation, &robot, now);
+        AppCommand business;
+        if (stop_held)
+            CommandManager_Clear();
+        if (!soft_stop && !stop_held && CommandManager_Take(&business))
         {
-            ArmResult r = RobotControl_Execute(&robot, &cmd, now);
+            ArmResult result = OperationManager_Command(&operation, &robot, &business, now);
             taskENTER_CRITICAL();
-            last_sequence = cmd.sequence;
-            last_command_result = r;
+            app_snapshot.command_result = result;
+            ++app_snapshot.command_revision;
             taskEXIT_CRITICAL();
         }
+        OperationManager_Step(&operation, &robot, now);
         (void)RobotControl_Step(&robot, now);
         taskENTER_CRITICAL();
         published_state = robot.machine.state;
+        app_snapshot.robot = robot.machine.state;
+        app_snapshot.startup = operation.startup.state;
+        app_snapshot.operation = operation.snapshot;
         control_heartbeat = now;
         taskEXIT_CRITICAL();
         vTaskDelayUntil(&last, pdMS_TO_TICKS(ROBOT_CONTROL_PERIOD_MS));
@@ -191,20 +192,19 @@ void App_Init(void)
     {
         configs[i].motor_id = ids[i];
         configs[i].map.joint_sign = 1;
-        configs[i].profile = CG_PROFILE_MANUAL_4PI;
+        configs[i].profile = 0;
     }
     (void)MotorManager_Init(configs); /* UNASSIGNED is the expected safe boot configuration. */
     if (RobotControl_Init(&robot) != ARM_OK || CanTransport_Init() != ARM_OK)
         App_Fatal(APP_FATAL_RTOS_OBJECT);
-    command_queue =
-        xQueueCreateStatic(APP_COMMAND_QUEUE_DEPTH, sizeof(RobotCommand), command_storage, &command_control);
-    if (command_queue == NULL)
-        App_Fatal(APP_FATAL_RTOS_OBJECT);
+    App_InitServices();
+    OperationManager_Init(&operation, HAL_GetTick());
     published_state = ROBOT_DISABLED;
     control_heartbeat = HAL_GetTick();
 }
 void App_CreateTasks(void)
 {
+    App_CreateServiceTasks();
     if (xTaskCreateStatic(RobotControlTask, "RobotControl", APP_CONTROL_STACK_WORDS, NULL,
                           APP_CONTROL_PRIORITY, control_stack, &control_tcb) == NULL ||
         xTaskCreateStatic(CanRxTask, "CanRx", APP_CAN_STACK_WORDS, NULL, APP_CAN_PRIORITY, can_stack,

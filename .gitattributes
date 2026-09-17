@@ -6,3 +6,7 @@
 *.yml text eol=lf
 *.json text eol=lf
 *.ioc text eol=lf
+# Preserve upstream/generated middleware whitespace; do not reformat vendor files.
+Drivers/STM32F4xx_HAL_Driver/** -whitespace
+Middlewares/Third_Party/** -whitespace
+FATFS/** -whitespace

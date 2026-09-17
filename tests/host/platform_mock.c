@@ -67,3 +67,5 @@ ArmResult CanTransport_Submit(const CanFrame *f, size_t n)
         frames[count++] = f[i];
     return ARM_OK;
 }
+
+void Platform_NotifyStorage(void) {}

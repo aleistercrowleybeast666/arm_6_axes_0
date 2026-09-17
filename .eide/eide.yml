@@ -17,6 +17,11 @@ srcDirs:
 - Drivers/STM32F4xx_HAL_Driver/Src
 - Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM4F
 - Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS
+- Track
+- Storage
+- Sensors
+- UI
+- Debug
 virtualFolder:
   name: <virtual_root>
   files:
@@ -24,6 +29,10 @@ virtualFolder:
   - path: Middlewares/Third_Party/FreeRTOS/Source/queue.c
   - path: Middlewares/Third_Party/FreeRTOS/Source/list.c
   - path: startup_stm32f407xx.s
+  - path: Middlewares/Third_Party/FatFs/src/ff.c
+  - path: Middlewares/Third_Party/FatFs/src/ff_gen_drv.c
+  - path: Middlewares/Third_Party/FatFs/src/diskio.c
+  - path: Middlewares/Third_Party/FatFs/src/option/ccsbcs.c
   folders: []
 dependenceList: []
 outDir: build/eide
@@ -54,6 +63,15 @@ targets:
       - Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM4F
       - Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS
       - build/generated
+      - Track
+      - Storage
+      - Sensors
+      - UI
+      - Debug
+      - Motor/Backends
+      - FATFS/Target
+      - FATFS/App
+      - Middlewares/Third_Party/FatFs/src
       libList: []
     excludeList:
     - Core/Src/sysmem.c

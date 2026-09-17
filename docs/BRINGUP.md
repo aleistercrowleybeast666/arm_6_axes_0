@@ -30,7 +30,7 @@ openocd -f openocd.cfg -c "init; reset halt; flash write_image erase build/firmw
 
 PB9→CAN transceiver TXD，PB8←RXD，AF9；收发器逻辑电平 3.3 V 兼容。CAN_H 对 H、CAN_L 对 L，保证适当共地/共模范围，双绞线，避免长支线。两个总线物理末端各 120 Ω，**不是每个电机都加一个 120 Ω**；断电后 H/L 间常见约 60 Ω 只在恰好两个终端且无其他支路影响时成立，依器件实际电路核对。
 
-`BspCan_GetDiagnostics` 可查看 RX 数、队列溢出和 HAL 错误。默认没有主动扫描/读取 CAN motor ID；可配合厂家工具或分析仪观察来源 ID。没有初始化 USART/USB，不依赖串口日志。
+`BspCan_GetDiagnostics` 可查看 RX 数、队列溢出和 HAL 错误。默认没有主动扫描/读取 CAN motor ID；可配合厂家工具或分析仪观察来源 ID。USART1已实现115200工程调试，可用help/status/motors/can/force/tf/tracks/fault；USB未实现。
 
 ## 5. 单电机阶段
 
@@ -38,7 +38,7 @@ PB9→CAN transceiver TXD，PB8←RXD，AF9；收发器逻辑电平 3.3 V 兼容
 
 默认 robot manager 需要六轴全部配置和健康，**不会为了单电机实验跳过六轴安全规则**。单电机 Enable 应在独立 commissioning 调试程序/外部厂家工具内进行，由操作者明确开启，使用已确认的低扭矩/低速度/低电流限幅；本固件不在启动时调用任何 commissioning 命令。
 
-单电机验证后记录：实际 ID、编码器零位、joint_sign、协议 profile、读回参数和控制增益。六轴都完成后再将已确认配置接入 `MotorManager_Init`，显式启用输出编译门并经 Command API 请求 Enable。实物支撑和重力下落风险必须先处理。
+单电机验证后记录：实际 ID、编码器零位、joint_sign、协议 profile、读回参数和控制增益。六轴都完成后再将已确认配置接入 `MotorManager_Init`，再评估并显式启用输出编译门；v0.0.2将从人工STOW自动建立runtime offset并进入HOME，不再等待调试口Enable。首次启用前必须有支撑、净空、硬件急停并确认固定启动轨迹安全。实物支撑和重力下落风险必须先处理。
 
 ## 6. 再生成流程
 
@@ -49,3 +49,7 @@ PB9→CAN transceiver TXD，PB8←RXD，AF9；收发器逻辑电平 3.3 V 兼容
 5. 检查 Git diff；尤其 HSE、CAN pins/timing、FreeRTOS allocation/IRQ、startup/linker。
 
 本次硬件结果：**NOT TESTED – PROBE NOT PRESENT**。OpenOCD 实际 `init` 返回 `unable to find a matching CMSIS-DAP device`。未执行 flash/reset run；CAN 和电机均未实测。
+
+## v0.0.2外设验收
+
+逐项按HARDWARE_PINOUT核对SDIO/PC7卡检测、OLED、TIM3、三个按钮、HX711和USART1。TF在启动挂载，压力校准文件可缺失。验证上电按住软停不会启动。使用示波器测HX711高脉冲、CAN波形和200Hz控制抖动；测各任务stack high-water。对真实TF做写入/rename掉电测试后才能评估数据保存可靠性。未完成这些检查不得报告Hardware PASS。

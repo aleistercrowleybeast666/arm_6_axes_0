@@ -1,16 +1,20 @@
 cmake_minimum_required(VERSION 3.20)
-project(arm_6_axes_0 VERSION 0.0.1 LANGUAGES C ASM)
+project(arm_6_axes_0 VERSION 0.0.2 LANGUAGES C ASM)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(ARM_BUILD_FIRMWARE "Build STM32F407 target" OFF)
-set(APP_DIRS RobotMath RobotMotion Teach Task Motor Safety App BSP Drivers/CyberGear)
+set(APP_DIRS RobotMath RobotMotion Teach Task Motor Safety App BSP Drivers/CyberGear Track Storage Sensors UI Debug Motor/Backends)
 set(PORTABLE_SOURCES
     RobotMath/robot_math_types.c RobotMath/robot_geometry.c RobotMath/robot_fk.c
     RobotMath/robot_jacobian.c RobotMath/robot_ik.c RobotMath/robot_limits.c
     RobotMotion/robot_trajectory.c Teach/teach_recorder.c Teach/teach_player.c Task/recipe.c
     Motor/robot_joint_map.c Motor/motor_manager.c Safety/robot_state_machine.c App/robot_control.c
     Drivers/CyberGear/cybergear_protocol.c Drivers/CyberGear/cybergear_motor.c)
+file(GLOB BUSINESS_SOURCES CONFIGURE_DEPENDS Track/*.c Sensors/*.c UI/*.c Debug/debug_cli.c)
+list(APPEND PORTABLE_SOURCES ${BUSINESS_SOURCES} Motor/Backends/cybergear_backend.c
+    App/command_manager.c App/startup_manager.c App/operation_manager.c Storage/storage_service.c
+    Task/factory_recipes.c Sensors/Backends/hx711_decode.c Safety/soft_stop.c BSP/text_format.c)
 add_library(robot_core STATIC ${PORTABLE_SOURCES})
 target_include_directories(robot_core PUBLIC ${APP_DIRS})
 target_compile_options(robot_core PRIVATE -Wall -Wextra -Werror -Wdouble-promotion -ffunction-sections -fdata-sections)
@@ -25,18 +29,24 @@ if(ARM_BUILD_FIRMWARE)
     add_library(st_platform STATIC ${HAL_SOURCES}
         ${RTOS_DIR}/tasks.c ${RTOS_DIR}/queue.c ${RTOS_DIR}/list.c
         ${RTOS_DIR}/portable/GCC/ARM_CM4F/port.c
-        ${RTOS_DIR}/CMSIS_RTOS/cmsis_os.c)
+        ${RTOS_DIR}/CMSIS_RTOS/cmsis_os.c
+        Middlewares/Third_Party/FatFs/src/ff.c Middlewares/Third_Party/FatFs/src/ff_gen_drv.c
+        Middlewares/Third_Party/FatFs/src/diskio.c Middlewares/Third_Party/FatFs/src/option/ccsbcs.c)
     set(PLATFORM_INCLUDES Core/Inc ${HAL_DIR}/Inc ${HAL_DIR}/Inc/Legacy
         Drivers/CMSIS/Include Drivers/CMSIS/Device/ST/STM32F4xx/Include
-        ${RTOS_DIR}/include ${RTOS_DIR}/portable/GCC/ARM_CM4F ${RTOS_DIR}/CMSIS_RTOS)
+        ${RTOS_DIR}/include ${RTOS_DIR}/portable/GCC/ARM_CM4F ${RTOS_DIR}/CMSIS_RTOS
+        FATFS/Target FATFS/App Middlewares/Third_Party/FatFs/src)
     target_include_directories(st_platform PUBLIC ${PLATFORM_INCLUDES} ${APP_DIRS})
     target_compile_definitions(st_platform PUBLIC USE_HAL_DRIVER STM32F407xx)
     target_compile_options(st_platform PRIVATE -ffunction-sections -fdata-sections)
     add_executable(arm_6_axes_0
         Core/Src/main.c Core/Src/can.c Core/Src/gpio.c Core/Src/freertos.c
+        Core/Src/sdio.c Core/Src/dma.c Core/Src/i2c.c Core/Src/tim.c Core/Src/usart.c
         Core/Src/stm32f4xx_it.c Core/Src/stm32f4xx_hal_msp.c Core/Src/stm32f4xx_hal_timebase_tim.c
         Core/Src/system_stm32f4xx.c startup_stm32f407xx.s
-        App/app_tasks.c App/version.c BSP/bsp_can.c BSP/can_transport.c BSP/syscall_stubs.c)
+        App/app_tasks.c App/service_tasks.c App/version.c BSP/bsp_can.c BSP/can_transport.c BSP/syscall_stubs.c
+        Storage/fatfs_backend.c Storage/storage_disk.c Sensors/Backends/hx711.c
+        UI/Backends/ssd1306.c Debug/debug_uart.c)
     add_dependencies(arm_6_axes_0 version_metadata)
     target_include_directories(arm_6_axes_0 PRIVATE build/generated)
     target_compile_options(arm_6_axes_0 PRIVATE -Wall -Wextra -Werror -ffunction-sections -fdata-sections)
@@ -59,6 +69,14 @@ else()
     target_include_directories(host_tests PRIVATE tests/vectors tests/host)
     target_compile_options(host_tests PRIVATE -Wall -Wextra -Werror -UNDEBUG)
     add_test(NAME robot_foundation COMMAND host_tests)
+    add_executable(business_tests tests/host/test_business.c tests/host/business_mock.c tests/host/platform_mock.c)
+    target_link_libraries(business_tests PRIVATE robot_core m)
+    target_include_directories(business_tests PRIVATE tests/host)
+    target_compile_options(business_tests PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+    add_test(NAME robot_business COMMAND business_tests)
+    target_compile_definitions(business_tests PRIVATE TEST_VECTOR_DIR="${CMAKE_SOURCE_DIR}/tests/vectors")
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME track_tool COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/host/test_track_tool.py)
     foreach(gate RANGE 0 1)
         add_executable(transport_test_${gate} tests/host/test_transport.c BSP/can_transport.c)
         target_include_directories(transport_test_${gate} PRIVATE tests/host/fakes ${APP_DIRS})

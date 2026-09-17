@@ -1,6 +1,6 @@
 build/
 .cache/
-Debug/
+# Debug/ now contains the UART source module; build outputs live under build/.
 Release/
 *.elf
 *.bin
@@ -8,6 +8,8 @@ Release/
 *.map
 *.log
 __pycache__/
+*.tmp
+!tests/vectors/*.bin
 .eide/.cache/
 *.bak
 *.o

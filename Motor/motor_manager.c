@@ -1,104 +1,65 @@
 #include "motor_manager.h"
+#include "motor_backend.h"
 #include "robot_hw_config.h"
-#include "can_transport.h"
 #include "platform_lock.h"
 #include <math.h>
-static MotorAxisConfig axis_config[AXIS_COUNT];
-static CyberGearMotor motors[AXIS_COUNT];
-static MotorAxisState axis_state[AXIS_COUNT];
-static bool configured;
-static bool Manager_IsValidConfig(const MotorAxisConfig *c)
-{
-    return CyberGear_IsValidId(c->motor_id) && c->motor_id != ROBOT_HOST_CAN_ID && c->map.calibrated &&
-           (c->map.joint_sign == 1 || c->map.joint_sign == -1) && isfinite(c->map.motor_zero_offset_rad) &&
-           c->protocol_confirmed && isfinite(CyberGear_GetPositionRange(c->profile)) && isfinite(c->kp) &&
-           c->kp > 0 && c->kp <= CYBERGEAR_MAX_KP && isfinite(c->kd) && c->kd >= 0 &&
-           c->kd <= CYBERGEAR_MAX_KD && isfinite(c->velocity_limit_rad_s) && c->velocity_limit_rad_s > 0 &&
-           c->velocity_limit_rad_s <= 30 && isfinite(c->acceleration_limit_rad_s2) &&
-           c->acceleration_limit_rad_s2 > 0 && isfinite(c->torque_limit_nm) && c->torque_limit_nm > 0 &&
-           c->torque_limit_nm <= 12 && isfinite(c->current_limit_a) && c->current_limit_a > 0 &&
-           c->current_limit_a <= 23;
-}
+static MotorAxisConfig configs[AXIS_COUNT];
+static bool coordinates_ready;
 ArmResult MotorManager_Init(const MotorAxisConfig c[AXIS_COUNT])
 {
-    if (c == NULL)
+    if (!c)
         return ARM_INVALID_ARGUMENT;
-    if (CanTransport_IsArmed())
+    if (MotorManager_IsArmed())
         return ARM_NOT_READY;
-    Platform_EnterCritical();
-    configured = true;
+    MotorAxisConfig raw[AXIS_COUNT];
+    bool mapped = true;
     for (unsigned i = 0; i < AXIS_COUNT; ++i)
     {
-        axis_config[i] = c[i];
-        motors[i] = (CyberGearMotor){
-            .motor_id = c[i].motor_id, .host_id = ROBOT_HOST_CAN_ID, .profile = c[i].profile};
-        axis_state[i] = (MotorAxisState){.motor_id = c[i].motor_id,
-                                         .joint_sign = c[i].map.joint_sign,
-                                         .motor_zero_offset = c[i].map.motor_zero_offset_rad};
-        if (!Manager_IsValidConfig(&c[i]))
-            configured = false;
-        for (unsigned j = 0; j < i; ++j)
-            if (c[i].motor_id == c[j].motor_id)
-                configured = false;
+        raw[i] = c[i];
+        raw[i].map = (RobotJointMap){.joint_sign = 1, .calibrated = true};
+        if ((c[i].map.joint_sign != 1 && c[i].map.joint_sign != -1) ||
+            !isfinite(c[i].map.motor_zero_offset_rad))
+            return ARM_NOT_CONFIGURED;
+        mapped &= c[i].map.calibrated;
     }
-    bool valid = configured;
-    Platform_ExitCritical();
-    return valid ? ARM_OK : ARM_NOT_CONFIGURED;
-}
-ArmResult MotorManager_ProcessFeedback(const CanFrame *f)
-{
-    if (f == NULL)
-        return ARM_INVALID_ARGUMENT;
-    ArmResult r = ARM_INVALID_ARGUMENT;
     Platform_EnterCritical();
     for (unsigned i = 0; i < AXIS_COUNT; ++i)
-    {
-        if (!CyberGear_IsValidId(motors[i].motor_id) || ((f->ext_id >> 8) & 255U) != motors[i].motor_id)
-            continue;
-        /* Unknown detailed fault layout is conservatively latched without interpreting bytes. */
-        if (f->extended && !f->remote && f->dlc == 8 && f->ext_id <= 0x1FFFFFFFU &&
-            (f->ext_id >> 24) == CG_FAULT_FEEDBACK && (uint8_t)f->ext_id == ROBOT_HOST_CAN_ID)
-        {
-            axis_state[i].fault |= 0x100U;
-            r = ARM_FAULT;
-            break;
-        }
-        r = CyberGear_ProcessFeedback(&motors[i], f);
-        if (r == ARM_OK)
-        {
-            CyberGearState *s = &motors[i].state;
-            MotorAxisState *d = &axis_state[i];
-            d->online = true;
-            d->enabled = s->enabled;
-            d->last_rx_tick = s->last_rx_tick;
-            d->temperature_c = s->temperature_c;
-            d->fault |= s->fault; /* faults require re-initialization after physical diagnosis */
-            if (RobotJointMap_ToRobot(&axis_config[i].map, s->position_rad, &d->position_rad) != ARM_OK ||
-                RobotJointMap_MapRate(&axis_config[i].map, s->velocity_rad_s, &d->velocity_rad_s) != ARM_OK ||
-                RobotJointMap_MapRate(&axis_config[i].map, s->torque_nm, &d->torque_nm) != ARM_OK)
-                d->fault |= 0x200U;
-        }
-        break;
-    }
+        configs[i] = c[i];
+    coordinates_ready = mapped;
+    ArmResult r = MotorBackend_Get()->init(raw);
     Platform_ExitCritical();
     return r;
 }
+ArmResult MotorManager_ProcessFeedback(const CanFrame *f)
+{
+    return MotorBackend_Get()->process_feedback(f);
+}
 void MotorManager_GetSnapshot(uint32_t now, MotorSnapshot *s)
 {
-    if (s == NULL)
+    if (!s)
         return;
     Platform_EnterCritical();
-    s->configured = configured;
+    MotorBackend_Get()->get_feedback(now, s);
+    s->coordinates_ready = coordinates_ready;
     for (unsigned i = 0; i < AXIS_COUNT; ++i)
     {
-        axis_state[i].online = CyberGear_IsOnline(&motors[i], now, MOTOR_FEEDBACK_TIMEOUT_MS);
-        s->axes[i] = axis_state[i];
+        MotorAxisState *a = &s->axes[i];
+        const RobotJointMap *m = &configs[i].map;
+        a->motor_position_rad = a->position_rad;
+        a->motor_zero_offset = m->motor_zero_offset_rad;
+        a->joint_sign = m->joint_sign;
+        if (RobotJointMap_ToRobot(m, a->position_rad, &a->position_rad) != ARM_OK ||
+            RobotJointMap_MapRate(m, a->velocity_rad_s, &a->velocity_rad_s) != ARM_OK)
+            a->fault |= 0x200U;
+        (void)RobotJointMap_MapRate(m, a->torque_nm, &a->torque_nm);
+        (void)RobotJointMap_ToRobot(m, a->command_position, &a->command_position);
+        (void)RobotJointMap_MapRate(m, a->command_velocity, &a->command_velocity);
     }
     Platform_ExitCritical();
 }
 bool MotorManager_IsHealthy(const MotorSnapshot *s, bool enabled)
 {
-    if (s == NULL || !s->configured)
+    if (!s || !s->configured || (enabled && !s->coordinates_ready))
         return false;
     for (unsigned i = 0; i < AXIS_COUNT; ++i)
         if (!s->axes[i].online || s->axes[i].fault || s->axes[i].temperature_c >= MOTOR_MAX_TEMPERATURE_C ||
@@ -106,105 +67,95 @@ bool MotorManager_IsHealthy(const MotorSnapshot *s, bool enabled)
             return false;
     return true;
 }
-ArmResult MotorManager_GetMotionLimits(RobotMotionLimits *l)
+ArmResult MotorManager_CaptureStartupPose(const JointVec6f *q, uint32_t now)
 {
-    if (l == NULL)
-        return ARM_INVALID_ARGUMENT;
+    if (!RobotMath_IsFiniteJoint(q) || MotorManager_IsArmed())
+        return ARM_NOT_READY;
     Platform_EnterCritical();
-    bool valid = configured;
+    MotorSnapshot s;
+    MotorBackend_Get()->get_feedback(now, &s);
+    if (!MotorManager_IsHealthy(&s, false))
+    {
+        Platform_ExitCritical();
+        return ARM_NOT_READY;
+    }
+    for (unsigned i = 0; i < AXIS_COUNT; ++i)
+        if (s.axes[i].enabled)
+        {
+            Platform_ExitCritical();
+            return ARM_NOT_READY;
+        }
     for (unsigned i = 0; i < AXIS_COUNT; ++i)
     {
-        l->velocity_rad_s.q[i] = axis_config[i].velocity_limit_rad_s;
-        l->acceleration_rad_s2.q[i] = axis_config[i].acceleration_limit_rad_s2;
+        configs[i].map.motor_zero_offset_rad =
+            s.axes[i].position_rad - (float)configs[i].map.joint_sign * q->q[i];
+        configs[i].map.calibrated = true;
+    }
+    coordinates_ready = true;
+    Platform_ExitCritical();
+    return ARM_OK;
+}
+ArmResult MotorManager_GetMotionLimits(RobotMotionLimits *m)
+{
+    if (!m)
+        return ARM_INVALID_ARGUMENT;
+    Platform_EnterCritical();
+    for (unsigned i = 0; i < AXIS_COUNT; ++i)
+    {
+        m->velocity_rad_s.q[i] = configs[i].velocity_limit_rad_s;
+        m->acceleration_rad_s2.q[i] = configs[i].acceleration_limit_rad_s2;
     }
     Platform_ExitCritical();
-    return valid ? ARM_OK : ARM_NOT_CONFIGURED;
+    return Trajectory_IsValidMotionLimits(m) ? ARM_OK : ARM_NOT_CONFIGURED;
 }
 ArmResult MotorManager_EnableAll(uint32_t now)
 {
-    MotorSnapshot s;
-    MotorManager_GetSnapshot(now, &s);
-    if (!MotorManager_IsHealthy(&s, false))
-        return ARM_NOT_READY;
-    CanFrame batch[AXIS_COUNT * 6];
-    size_t n = 0;
-    Platform_EnterCritical();
-    ArmResult r = ARM_OK;
-    for (unsigned i = 0; i < AXIS_COUNT && r == ARM_OK; ++i)
-    {
-        const MotorAxisConfig *c = &axis_config[i];
-        if (s.axes[i].enabled)
-        {
-            r = ARM_NOT_READY;
-            break;
-        }
-        r = CyberGear_EncodeParameter(c->motor_id, ROBOT_HOST_CAN_ID, CG_PARAM_RUN_MODE, CG_MODE_MOTION,
-                                      &batch[n++]);
-        if (r == ARM_OK)
-            r = CyberGear_EncodeParameter(c->motor_id, ROBOT_HOST_CAN_ID, CG_PARAM_VELOCITY_LIMIT,
-                                          c->velocity_limit_rad_s, &batch[n++]);
-        if (r == ARM_OK)
-            r = CyberGear_EncodeParameter(c->motor_id, ROBOT_HOST_CAN_ID, CG_PARAM_TORQUE_LIMIT,
-                                          c->torque_limit_nm, &batch[n++]);
-        if (r == ARM_OK)
-            r = CyberGear_EncodeParameter(c->motor_id, ROBOT_HOST_CAN_ID, CG_PARAM_CURRENT_LIMIT,
-                                          c->current_limit_a, &batch[n++]);
-        CyberGearCommand neutral = {0};
-        if (r == ARM_OK)
-            r = CyberGear_EncodeMotion(c->motor_id, c->profile, &neutral, &batch[n++]);
-        if (r == ARM_OK)
-            r = CyberGear_EncodeSimple(c->motor_id, ROBOT_HOST_CAN_ID, CG_ENABLE, &batch[n++]);
-    }
-    if (r == ARM_OK)
-        r = CanTransport_Submit(batch, n);
-    Platform_ExitCritical();
-    return r;
+    if (!coordinates_ready)
+        return ARM_NOT_CONFIGURED;
+    return MotorBackend_Get()->enable(now);
 }
 void MotorManager_DisableAll(void)
 {
-    /* Invalidate queued motion and abort mailboxes before best-effort stop frames. */
-    CanTransport_RevokeOutput();
-    Platform_EnterCritical();
-    for (unsigned i = 0; i < AXIS_COUNT; ++i)
-        if (CyberGear_IsValidId(motors[i].motor_id))
-            (void)CyberGear_Disable(&motors[i]);
-    Platform_ExitCritical();
+    MotorBackend_Get()->disable();
 }
 ArmResult MotorManager_SendJointCommand(const RobotTrajectorySample *s, uint32_t now)
 {
-    if (s == NULL || !RobotMath_IsFiniteJoint(&s->q) || !RobotMath_IsFiniteJoint(&s->dq_rad_s) ||
-        !RobotMath_IsFiniteJoint(&s->ddq_rad_s2))
-        return ARM_INVALID_ARGUMENT;
-    MotorSnapshot snap;
-    MotorManager_GetSnapshot(now, &snap);
-    if (!MotorManager_IsHealthy(&snap, true))
-        return ARM_FAULT;
-    CanFrame frames[AXIS_COUNT];
-    ArmResult r = ARM_OK;
+    if (!s || !coordinates_ready)
+        return ARM_NOT_READY;
+    RobotTrajectorySample raw = *s;
     Platform_EnterCritical();
-    for (unsigned i = 0; i < AXIS_COUNT && r == ARM_OK; ++i)
+    for (unsigned i = 0; i < AXIS_COUNT; ++i)
     {
-        const MotorAxisConfig *cfg = &axis_config[i];
-        CyberGearCommand c = {.kp = cfg->kp, .kd = cfg->kd};
-        r = RobotJointMap_ToMotor(&cfg->map, s->q.q[i], &c.position_rad);
-        if (r == ARM_OK)
-            r = RobotJointMap_MapRate(&cfg->map, s->dq_rad_s.q[i], &c.velocity_rad_s);
-        if (r == ARM_OK && (fabsf(c.position_rad) > CyberGear_GetPositionRange(cfg->profile) ||
-                            fabsf(c.velocity_rad_s) > cfg->velocity_limit_rad_s ||
-                            fabsf(s->ddq_rad_s2.q[i]) > cfg->acceleration_limit_rad_s2 * 1.001f))
-            r = ARM_OUT_OF_LIMIT;
-        if (r == ARM_OK)
-            r = CyberGear_EncodeMotion(cfg->motor_id, cfg->profile, &c, &frames[i]);
-    }
-    if (r == ARM_OK)
-        r = CanTransport_Submit(frames, AXIS_COUNT);
-    if (r == ARM_OK)
-        for (unsigned i = 0; i < AXIS_COUNT; ++i)
+        const RobotJointMap *m = &configs[i].map;
+        if (RobotJointMap_ToMotor(m, s->q.q[i], &raw.q.q[i]) != ARM_OK ||
+            RobotJointMap_MapRate(m, s->dq_rad_s.q[i], &raw.dq_rad_s.q[i]) != ARM_OK)
         {
-            axis_state[i].command_position = s->q.q[i];
-            axis_state[i].command_velocity = s->dq_rad_s.q[i];
-            axis_state[i].command_torque = 0;
+            Platform_ExitCritical();
+            return ARM_INVALID_ARGUMENT;
         }
+        raw.ddq_rad_s2.q[i] = (float)m->joint_sign * s->ddq_rad_s2.q[i];
+    }
+    ArmResult r = MotorBackend_Get()->set_command(&raw, now);
     Platform_ExitCritical();
     return r;
+}
+ArmResult MotorManager_ArmOutput(void)
+{
+    return MotorBackend_Get()->arm_output();
+}
+bool MotorManager_IsArmed(void)
+{
+    return MotorBackend_Get()->is_armed();
+}
+bool MotorManager_HasBusFault(void)
+{
+    return MotorBackend_Get()->has_bus_fault();
+}
+ArmResult MotorManager_EnterTeachMode(void)
+{
+    return MotorBackend_Get()->enter_teach_mode();
+}
+ArmResult MotorManager_ExitTeachMode(void)
+{
+    return MotorBackend_Get()->exit_teach_mode();
 }
