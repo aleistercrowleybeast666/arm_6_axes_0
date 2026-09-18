@@ -1,0 +1,29 @@
+{
+  "name": "arm-six-axes-reva-schematic",
+  "uuid": "406f485a7ca945feab9a731e9b6ca1de",
+  "displayName": "Six-axis controller Rev.A schematic",
+  "description": "Official API schematic generator; no PCB operations.",
+  "version": "1.0.0",
+  "publisher": "arm_6_axes_0",
+  "engines": {
+    "eda": "^3.2.0"
+  },
+  "license": "UNLICENSED",
+  "entry": "./dist/index",
+  "activationEvents": {},
+  "headerMenus": {
+    "home": [
+      {
+        "id": "arm-reva-home",
+        "title": "Arm Rev.A",
+        "menuItems": [
+          {
+            "id": "arm-reva-generate",
+            "title": "Generate Rev.A in empty window",
+            "registerFn": "generateRevA"
+          }
+        ]
+      }
+    ]
+  }
+}

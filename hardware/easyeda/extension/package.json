@@ -1,0 +1,8 @@
+{
+  "name": "arm-six-axes-reva-schematic",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {"build": "node build.mjs", "test": "node --test tests/*.test.mjs"},
+  "devDependencies": {"esbuild": "0.24.2", "@jlceda/pro-api-types": "0.4.23"}
+}

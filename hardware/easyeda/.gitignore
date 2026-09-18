@@ -1,0 +1,2 @@
+# Review actual client exports before deliberately adding them to Git.
+output/

@@ -1,0 +1,21 @@
+{
+  "status": "BLOCKED_CLIENT_DOCUMENT_INITIALIZATION",
+  "dateLocal": "2026-09-19",
+  "editorVersion": "3.2.149.88089769",
+  "mode": "online",
+  "bridgeConnected": true,
+  "officialCatalogMatches": 38,
+  "projectUuid": "6c9d811095b7492da48fa71b8e2a6dc2",
+  "projectFriendlyName": "arm_6_axes_0_Prototype0_RevA_20260918164505853",
+  "lastReadSchematicPages": [],
+  "editableProjectExported": false,
+  "erc": "NOT_RUN",
+  "pcb": "NOT_STARTED",
+  "clientErrors": [
+    "Project_Create timed out after 30000ms; subsequent read confirmed project record exists.",
+    "Project_PrepareSchematic failed: Cannot create/name schematic page.",
+    "getCurrentSchematicPageInfo failed: Cannot read properties of undefined (reading typeSymbols)."
+  ],
+  "nextAction": "User checks that the named empty project opens normally in the client; preserve existing project, do not repeat creation blindly. Then inspect document state before resuming.",
+  "shutdown": "DEFERRED_UNTIL_TASK_COMPLETED"
+}
