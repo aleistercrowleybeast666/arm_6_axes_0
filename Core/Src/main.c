@@ -100,12 +100,12 @@ int main(void)
   MX_SDIO_SD_Init();
   MX_I2C1_Init();
   MX_USART1_UART_Init();
-  /* StorageTask owns FatFs initialization. */
+  MX_FATFS_Init();
   MX_CAN1_Init();
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
   App_Init();
-/* USER CODE END 2 */
+  /* USER CODE END 2 */
 
   /* Call init function for freertos objects (in cmsis_os2.c) */
   MX_FREERTOS_Init();
@@ -120,7 +120,7 @@ int main(void)
   App_Fatal(APP_FATAL_RTOS_OBJECT);
   while (1)
   {
-/* USER CODE END WHILE */
+    /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
   }
@@ -189,7 +189,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   /* USER CODE BEGIN Callback 0 */
 
   /* USER CODE END Callback 0 */
-  if (htim != NULL && htim->Instance == BOARD_HAL_TICK_INSTANCE)
+  if (htim->Instance == TIM6)
   {
     HAL_IncTick();
   }
@@ -206,7 +206,7 @@ void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
   App_Fatal(APP_FATAL_HAL);
-/* USER CODE END Error_Handler_Debug */
+  /* USER CODE END Error_Handler_Debug */
 }
 #ifdef USE_FULL_ASSERT
 /**

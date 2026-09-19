@@ -24,7 +24,7 @@
 
 /* USER CODE END 0 */
 
-static CAN_HandleTypeDef hcan1;
+CAN_HandleTypeDef hcan1;
 
 /* CAN1 init function */
 void MX_CAN1_Init(void)

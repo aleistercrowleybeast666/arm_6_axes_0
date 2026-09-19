@@ -32,6 +32,7 @@ extern "C" {
 
 /* USER CODE END Includes */
 
+extern I2C_HandleTypeDef hi2c1;
 
 /* USER CODE BEGIN Private defines */
 
@@ -48,3 +49,4 @@ I2C_HandleTypeDef *I2c_GetHandle(void);
 #endif
 
 #endif /* __I2C_H__ */
+

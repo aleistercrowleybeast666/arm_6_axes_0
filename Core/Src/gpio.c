@@ -67,6 +67,12 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
+  /*Configure GPIO pins : ENCODER_KEY_Pin DCDC_PG_Pin */
+  GPIO_InitStruct.Pin = ENCODER_KEY_Pin|DCDC_PG_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
   /*Configure GPIO pin : TF_DETECT_Pin */
   GPIO_InitStruct.Pin = TF_DETECT_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;

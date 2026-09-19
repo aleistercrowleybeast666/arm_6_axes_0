@@ -64,6 +64,10 @@ void Error_Handler(void);
 #define SOFT_STOP_Pin GPIO_PIN_4
 #define SOFT_STOP_GPIO_Port GPIOE
 #define SOFT_STOP_EXTI_IRQn EXTI4_IRQn
+#define ENCODER_KEY_Pin GPIO_PIN_5
+#define ENCODER_KEY_GPIO_Port GPIOE
+#define DCDC_PG_Pin GPIO_PIN_6
+#define DCDC_PG_GPIO_Port GPIOE
 #define TF_DETECT_Pin GPIO_PIN_7
 #define TF_DETECT_GPIO_Port GPIOC
 #define HX711_DOUT_Pin GPIO_PIN_0

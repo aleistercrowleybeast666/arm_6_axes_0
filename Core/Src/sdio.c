@@ -24,9 +24,9 @@
 
 /* USER CODE END 0 */
 
-static SD_HandleTypeDef hsd;
-static DMA_HandleTypeDef hdma_sdio_rx;
-static DMA_HandleTypeDef hdma_sdio_tx;
+SD_HandleTypeDef hsd;
+DMA_HandleTypeDef hdma_sdio_rx;
+DMA_HandleTypeDef hdma_sdio_tx;
 
 /* SDIO init function */
 

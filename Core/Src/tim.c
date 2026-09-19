@@ -24,7 +24,7 @@
 
 /* USER CODE END 0 */
 
-static TIM_HandleTypeDef htim3;
+TIM_HandleTypeDef htim3;
 
 /* TIM3 init function */
 void MX_TIM3_Init(void)

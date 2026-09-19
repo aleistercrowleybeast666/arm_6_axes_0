@@ -76,7 +76,7 @@ void HAL_MspInit(void)
 
   /* USER CODE BEGIN MspInit 1 */
   HAL_NVIC_SetPriority(SVCall_IRQn, 0, 0);
-/* USER CODE END MspInit 1 */
+  /* USER CODE END MspInit 1 */
 }
 
 /* USER CODE BEGIN 1 */
