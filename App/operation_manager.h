@@ -27,6 +27,7 @@ typedef struct
     char name[STORAGE_NAME_BYTES];
     uint32_t samples, elapsed_ms, progress_percent, force_hook_calls;
     bool aborted;
+    bool storage_only; /* Menu maintenance never establishes robot readiness. */
     int factory_index; /* -1 for Custom/other; UI translates fixed products. */
 } OperationSnapshot;
 typedef struct

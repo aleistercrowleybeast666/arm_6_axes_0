@@ -14,4 +14,5 @@ void App_CreateTasks(void);
 void App_Fatal(AppFatalReason reason);
 AppFatalReason App_GetFatalReason(void);
 RobotState App_GetRobotState(void);
+void App_RequestSoftStop(void); /* Task context; same latch as the dedicated ISR stop. */
 #endif

@@ -30,7 +30,7 @@ openocd -f openocd.cfg -c "init; reset halt; flash write_image erase build/firmw
 
 PB9→CAN transceiver TXD，PB8←RXD，AF9；收发器逻辑电平 3.3 V 兼容。CAN_H 对 H、CAN_L 对 L，保证适当共地/共模范围，双绞线，避免长支线。两个总线物理末端各 120 Ω，**不是每个电机都加一个 120 Ω**；断电后 H/L 间常见约 60 Ω 只在恰好两个终端且无其他支路影响时成立，依器件实际电路核对。
 
-`BspCan_GetDiagnostics` 可查看 RX 数、队列溢出和 HAL 错误。默认没有主动扫描/读取 CAN motor ID；可配合厂家工具或分析仪观察来源 ID。USART1已实现115200工程调试，可用help/status/motors/can/force/tf/tracks/fault；USB未实现。
+`BspCan_GetDiagnostics` 可查看 RX 数、队列溢出和 HAL 错误。默认没有主动扫描/读取 CAN motor ID；可配合厂家工具或分析仪观察来源 ID。USART2已实现115200工程调试，可用help/status/motors/can/force/tf/tracks/fault；USB未实现。
 
 ## 5. 单电机阶段
 
@@ -52,4 +52,4 @@ PB9→CAN transceiver TXD，PB8←RXD，AF9；收发器逻辑电平 3.3 V 兼容
 
 ## v0.0.2外设验收
 
-逐项按HARDWARE_PINOUT核对SDIO/PC7卡检测、OLED、TIM3、三个按钮、HX711和USART1。TF在启动挂载，压力校准文件可缺失。验证上电按住软停不会启动。使用示波器测HX711高脉冲、CAN波形和200Hz控制抖动；测各任务stack high-water。对真实TF做写入/rename掉电测试后才能评估数据保存可靠性。未完成这些检查不得报告Hardware PASS。
+逐项按HARDWARE_PINOUT核对SDIO/PC7卡检测、OLED、TIM3、三个按钮、HX711和USART2。TF在启动挂载，压力校准文件可缺失。验证上电按住软停不会启动。使用示波器测HX711高脉冲、CAN波形和200Hz控制抖动；测各任务stack high-water。对真实TF做写入/rename掉电测试后才能评估数据保存可靠性。未完成这些检查不得报告Hardware PASS。

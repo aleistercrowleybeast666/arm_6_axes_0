@@ -98,9 +98,9 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_SDIO_SD_Init();
-  MX_I2C1_Init();
-  MX_USART1_UART_Init();
-  MX_FATFS_Init();
+  MX_I2C2_Init();
+  MX_USART2_UART_Init();
+  /* StorageTask owns FatFs initialization. */
   MX_CAN1_Init();
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
@@ -120,7 +120,7 @@ int main(void)
   App_Fatal(APP_FATAL_RTOS_OBJECT);
   while (1)
   {
-    /* USER CODE END WHILE */
+  /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
   }
@@ -189,7 +189,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   /* USER CODE BEGIN Callback 0 */
 
   /* USER CODE END Callback 0 */
-  if (htim->Instance == TIM1)
+  if (htim != NULL && htim->Instance == BOARD_HAL_TICK_INSTANCE)
   {
     HAL_IncTick();
   }

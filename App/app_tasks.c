@@ -80,6 +80,13 @@ void App_RequestSoftStopFromIsr(void)
 {
     soft_stop_latched = true;
 }
+void App_RequestSoftStop(void)
+{
+    taskENTER_CRITICAL();
+    soft_stop_latched = true;
+    CommandManager_Clear();
+    taskEXIT_CRITICAL();
+}
 static void App_RequestFault(ArmResult reason)
 {
     taskENTER_CRITICAL();
@@ -183,8 +190,10 @@ static void SupervisorTask(void *argument)
 }
 void App_Init(void)
 {
-    if (BspCan_Init() != ARM_OK)
-        App_Fatal(APP_FATAL_HAL);
+    ArmResult can_result = BspCan_Init();
+    if (can_result != ARM_OK && can_result != ARM_BUS_ERROR)
+        App_Fatal(APP_FATAL_RTOS_OBJECT);
+    /* A latched CAN hardware failure disables actuation but permits OLED/TF diagnostics. */
     const uint8_t ids[AXIS_COUNT] = {MOTOR_J1_ID, MOTOR_J2_ID, MOTOR_J3_ID,
                                      MOTOR_J4_ID, MOTOR_J5_ID, MOTOR_J6_ID};
     MotorAxisConfig configs[AXIS_COUNT] = {0};

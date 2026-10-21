@@ -22,6 +22,7 @@ typedef enum
     CMD_RECORD_FINISH,
     CMD_RECORD_CANCEL,
     CMD_SOFT_STOP,
+    CMD_SCAN_TRACKS,
     CMD_ACKNOWLEDGE
 } AppCommandType;
 typedef struct

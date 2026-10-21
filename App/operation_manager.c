@@ -72,6 +72,14 @@ static TrackResult Operation_Storage(OperationManager *o, RobotControl *c, Stora
         o->storage_type = r->type;
     return t;
 }
+static bool Operation_MenuIdle(const OperationManager *o, const RobotControl *c)
+{
+    bool ready = o->startup.state == STARTUP_READY && c->machine.state == ROBOT_READY;
+    bool offline = c->machine.state == ROBOT_DISABLED && !MotorManager_IsArmed() &&
+                   o->startup.state != STARTUP_TO_HOME && !c->enable_pending;
+    return (ready || offline) && !c->teach_active && !c->stopping.active && !o->storage_ticket &&
+           (o->snapshot.state == OP_IDLE || o->snapshot.state == OP_DONE || o->snapshot.state == OP_ERROR);
+}
 ArmResult OperationManager_Command(OperationManager *o, RobotControl *c, const AppCommand *cmd, uint32_t now)
 {
     if (!o || !c || !cmd || cmd->source != CONTROL_SOURCE_LOCAL)
@@ -83,6 +91,13 @@ ArmResult OperationManager_Command(OperationManager *o, RobotControl *c, const A
     }
     if (cmd->type == CMD_ACKNOWLEDGE)
     {
+        if (o->snapshot.storage_only && !o->storage_ticket &&
+            (Operation_MenuIdle(o, c) || (!MotorManager_IsArmed() &&
+             o->startup.state != STARTUP_READY && c->machine.state == ROBOT_SOFT_STOPPED)))
+        {
+            o->snapshot = (OperationSnapshot){.state = OP_IDLE, .factory_index = -1};
+            return ARM_OK;
+        }
         if (o->storage_ticket || o->startup.state != STARTUP_READY)
             return ARM_NOT_READY;
         if (c->machine.state == ROBOT_SOFT_STOPPED)
@@ -95,6 +110,26 @@ ArmResult OperationManager_Command(OperationManager *o, RobotControl *c, const A
             return ARM_NOT_READY;
         o->snapshot.state = OP_IDLE;
         o->snapshot.aborted = false;
+        o->snapshot.storage_only = false;
+        return ARM_OK;
+    }
+    if (cmd->type == CMD_DELETE_CUSTOM || cmd->type == CMD_SCAN_TRACKS)
+    {
+        if (!Operation_MenuIdle(o, c))
+            return ARM_NOT_READY;
+        StorageRequest request = {.type = cmd->type == CMD_DELETE_CUSTOM ? STORAGE_DELETE_TRACK
+                                                                        : STORAGE_SCAN_TRACKS};
+        if (cmd->type == CMD_DELETE_CUSTOM)
+        {
+            if (!Storage_IsSafeName(cmd->name))
+                return ARM_INVALID_ARGUMENT;
+            memcpy(request.name, cmd->name, sizeof(request.name));
+        }
+        o->snapshot = (OperationSnapshot){.state = OP_LOADING, .factory_index = -1, .storage_only = true};
+        TrackResult t = StorageService_Request(&request, &o->storage_ticket);
+        if (t != TRACK_OK)
+            return Operation_Error(o, ARM_NOT_READY, t);
+        o->storage_type = request.type;
         return ARM_OK;
     }
     if (o->snapshot.state == OP_RECORDING &&
@@ -180,11 +215,6 @@ ArmResult OperationManager_Command(OperationManager *o, RobotControl *c, const A
         r.type = STORAGE_LOAD_TRACK;
         memcpy(r.name, cmd->name, sizeof(r.name));
         memcpy(o->snapshot.name, cmd->name, sizeof(r.name));
-    }
-    else if (cmd->type == CMD_DELETE_CUSTOM)
-    {
-        r.type = STORAGE_DELETE_TRACK;
-        memcpy(r.name, cmd->name, sizeof(r.name));
     }
     else
         return ARM_INVALID_ARGUMENT;
@@ -290,6 +320,24 @@ void OperationManager_Step(OperationManager *o, RobotControl *c, uint32_t now)
 {
     if (!o || !c)
         return;
+    /* Consume menu-only results before the motion startup gate. Never set READY or arm output. */
+    if (o->snapshot.storage_only)
+    {
+        if (o->storage_ticket)
+        {
+            StorageResponse response;
+            if (StorageService_TakeResult(o->storage_ticket, &response) == TRACK_OK)
+            {
+                o->storage_ticket = 0;
+                o->snapshot.track_result = response.result;
+                o->snapshot.result = response.result == TRACK_OK || response.result == TRACK_LIST_FULL
+                                         ? ARM_OK : ARM_NOT_READY;
+                o->snapshot.state = o->snapshot.result == ARM_OK ? OP_DONE : OP_ERROR;
+                o->pending_discard = false;
+            }
+        }
+        return;
+    }
     if (o->startup.state != STARTUP_READY)
     {
         (void)StartupManager_Step(&o->startup, c, now);

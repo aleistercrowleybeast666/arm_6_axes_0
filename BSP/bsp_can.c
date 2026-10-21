@@ -21,17 +21,26 @@ ArmResult BspCan_Init(void)
     filter.FilterActivation = ENABLE;
     filter.SlaveStartFilterBank = 14;
     CAN_HandleTypeDef *can = Can_GetHandle();
-    /* HAL timeout needs TIM6 interrupts: do this before any FreeRTOS critical
+    /* HAL timeout needs the HAL tick interrupt: do this before any FreeRTOS critical
      * section, whose pre-scheduler BASEPRI remains masked until the first task. */
-    if (HAL_CAN_ConfigFilter(can, &filter) != HAL_OK || HAL_CAN_Start(can) != HAL_OK)
-        return ARM_BUS_ERROR;
+    bool hardware_ready = HAL_CAN_ConfigFilter(can, &filter) == HAL_OK && HAL_CAN_Start(can) == HAL_OK;
     rx_queue = xQueueCreateStatic(CAN_RX_QUEUE_DEPTH, sizeof(CanFrame), rx_storage, &rx_control);
     if (rx_queue == NULL)
         return ARM_NOT_READY;
+    if (!hardware_ready)
+    {
+        ++diagnostics.hal_errors;
+        diagnostics.last_hal_error = HAL_CAN_GetError(can);
+        return ARM_BUS_ERROR; /* Static RX queue remains usable; tasks must not busy-spin. */
+    }
     if (HAL_CAN_ActivateNotification(can, CAN_IT_RX_FIFO0_MSG_PENDING | CAN_IT_RX_FIFO0_OVERRUN |
                                               CAN_IT_ERROR | CAN_IT_BUSOFF | CAN_IT_ERROR_PASSIVE |
                                               CAN_IT_LAST_ERROR_CODE | CAN_IT_TX_MAILBOX_EMPTY) != HAL_OK)
+    {
+        ++diagnostics.hal_errors;
+        diagnostics.last_hal_error = HAL_CAN_GetError(can);
         return ARM_BUS_ERROR;
+    }
     return ARM_OK;
 }
 ArmResult BspCan_Receive(CanFrame *f, uint32_t wait_ms)

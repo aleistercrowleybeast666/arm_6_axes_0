@@ -53,6 +53,8 @@ ASSUME_STOW：人工摆到 STOW → 等六轴 configured/online/fresh/no-fault �
 
 默认 IDs 未分配、增益/限幅未 commissioning、ARM_ENABLE_MOTOR_OUTPUT=0，因此真实机器不会自动动作。上电已按住软停也能被电平检查识别；按住期间清空/拒绝新命令。启动中止后需要重新正确摆位并重新启动。
 
+OLED只读导航独立于启动状态，未接电机/压力可进入离线菜单。TF列表刷新和确认删除使用OperationManager的storage_only路径，仅在安全空闲时提交，不建立机器人READY、不使能输出。CAN Start/通知失败保留静态RX队列并锁存diagnostics故障，允许菜单/TF任务继续；静态队列创建失败仍为fatal。HAL CAN Start由vendor的10ms超时约束，后续输出门会拒绝锁存的总线故障。相关页面、输入和字体见UI_LOCAL。
+
 SoftStop 在控制任务内取消业务，清空排队命令，按已配置加速度生成速度连续的减速曲线，检查停止位置；保持电机 enabled 的末端姿态，确认后也不自动续播。停止距离无法留在限位内、反馈/总线故障走 Fault 撤销输出。软件停止不保证断电后的重力保持。
 
 ## 更换硬件和后续扩展

@@ -4,7 +4,9 @@
 
 ## 生成流程
 
-CubeMX6.15.0 / FW_F4 V1.28.3实际生成；新增SDIO/FatFs/I2C1/TIM3/USART1/GPIO/EXTI/DMA。Generate Code后必须运行 `python tools/integrate_cubemx.py`，再clean build、host tests及invariants。脚本封装HAL handles、接入静态任务和错误路径、设置SVC/RTOS配置、CCM NOLOAD、移除main中的FatFs初始化；HAL/RTOS/FatFs vendor源保持原样。脚本可重复执行。
+CubeMX6.15.0 / FW_F4 V1.28.3生成；当前接线使用SDIO/FatFs/I2C2/TIM3/USART2/GPIO/EXTI/DMA，HAL时基为TIM1，详见 [HARDWARE_PINOUT](HARDWARE_PINOUT.md)。Generate Code后必须运行 `python tools/integrate_cubemx.py`，再clean build、host tests及invariants。脚本封装HAL handles、接入静态任务和错误路径、设置SVC/RTOS配置、CCM NOLOAD、移除main中的FatFs初始化；HAL/RTOS/FatFs vendor源保持原样。脚本可重复执行。
+
+2026-10-14 修复：重新生成会保留用户区中的旧 `hi2c1/huart1` getter，却生成 `hi2c2/huart2` 声明；只消除编译错误还会留下旧 BSP 引脚、串口回调过滤和软停/HX711 中断分发。集成脚本现使用接线基准的句柄，检查声明是否存在，并统一 HAL tick 回调。恢复 `App_CreateTasks()`、`INCLUDE_vTaskDelayUntil=1` 和9级优先级（控制任务使用7级，Cube默认7级仅允许0..6），避免编译成功后仍无法运行应用。`python tools/check_invariants.py` 现检查 IOC、生成代码和 BSP 的基准一致性，未集成的占位应用会直接报错。
 
 本轮修正I2C400k需Fast模式、SDIO DMA请求索引、FatFs SD卡检测/模板配置，最终实际Generate Code返回OK。生成的FATFS占位文件不参与构建，FatFs由StorageTask及自有disk adapter唯一拥有。
 

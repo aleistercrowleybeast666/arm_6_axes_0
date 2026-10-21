@@ -32,7 +32,6 @@ extern "C" {
 
 /* USER CODE END Includes */
 
-extern SD_HandleTypeDef hsd;
 
 /* USER CODE BEGIN Private defines */
 
@@ -51,4 +50,3 @@ DMA_HandleTypeDef *Sd_GetTxDma(void);
 #endif
 
 #endif /* __SDIO_H__ */
-

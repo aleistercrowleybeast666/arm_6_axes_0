@@ -9,7 +9,7 @@
 - 保留原 HAL/CAN/FK/Jacobian/IK/限位/同步关节轨迹；新增 Startup/Command/Operation、静态 MotorBackend。
 - SDIO4bit + FatFs 单任务所有者；BIN v1；48 KiB CCM、4096点、50Hz实际反馈录制，200Hz连续速度播放。先整条加载RAM再执行，录制结束才写TF。
 - Factory三类独立Recipe、Force Hook（当前NONE，工艺TBD）；Custom播放结束保持、不自动HOME、不调用Factory Hook。
-- ForceSensor N抽象 + HX711、校准持久化；OLED本地两项主菜单、编码器/FWD/BACK、独立软停、只读UART调试与空闲校准。
+- ForceSensor N抽象 + HX711、校准持久化；128×64 OLED离线主菜单、编码器旋转/按下确认、FWD/BACK、独立软停、只读UART调试与空闲校准。未接电机或压力模块也可浏览菜单、TF状态和轨迹文件；执行/录制仍检查原安全条件。
 - 七个静态应用任务；全部静态内存；真实CyberGear手拖尚未调试，明确返回NOT_CONFIGURED。
 
 未提供真实生产轨迹、蛋糕尺寸、压力阈值或安全增益。USB、Pi GUI、J7、挤奶油、Homing、动力学补偿和生产级力闭环不在本轮实现范围。
@@ -36,7 +36,7 @@ EIDE：打开 `arm_6_axes_0.code-workspace`，选择 Debug / GCC，设置本机 
 
 HSE **8 MHz** → SYSCLK **168 MHz**，APB1 42 MHz、APB2 84 MHz。**HSE 频率依赖实际开发板**；若板上不是 8 MHz，先修改 `.ioc`、重新生成并核算 CAN timing。不得把 HSI 当作最终 CAN 时钟方案。
 
-CAN1：PB8 RX / PB9 TX，AF9，1 Mbps。PA9/PA10 为115200 UART调试；PA11/PA12 仍预留USB。新增引脚见 HARDWARE_PINOUT。必须使用外部 CAN 收发器。
+CAN1：PB8 RX / PB9 TX，AF9，1 Mbps。PA2/PA3 为 USART2 115200 UART；PA11/PA12 仍预留USB。引脚以用户提供的 `六轴机械臂.epro2` 为基准，见 [HARDWARE_PINOUT](docs/HARDWARE_PINOUT.md)。必须使用外部 CAN 收发器。
 
 ## 机械基线与已知限制
 

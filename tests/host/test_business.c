@@ -2,6 +2,7 @@
 #include "robot_geometry.h"
 #include "force_backend.h"
 #include "input_local.h"
+#include "ui_raster.h"
 #include "debug_cli.h"
 #include "text_format.h"
 #include <assert.h>
@@ -569,17 +570,19 @@ static void Test_Ui(void)
     AppCommand cmd;
     UiModel model;
     LocalUi_Render(&u, STARTUP_READY, ROBOT_READY, &o, &s, &model);
-    assert(!strcmp(model.rows[0], UiStrings_Get(UI_TEXT_EXECUTE)));
+    assert(model.has_title && !strcmp(model.rows[1], UiStrings_Get(UI_TEXT_EXECUTE)));
     assert(!LocalUi_Handle(&u, FORWARD, STARTUP_WAIT_MOTORS, ROBOT_DISABLED, &o, &s, &cmd));
+    assert(u.page == UI_PAGE_ACTIONS);
+    LocalUi_Handle(&u, BACK, STARTUP_WAIT_MOTORS, ROBOT_DISABLED, &o, &s, &cmd);
     assert(!LocalUi_Handle(&u, FORWARD, STARTUP_READY, ROBOT_READY, &o, &s, &cmd));
     assert(u.page == UI_PAGE_ACTIONS);
     LocalUi_Handle(&u, ENCODER_NEXT, STARTUP_READY, ROBOT_READY, &o, &s, &cmd);
     LocalUi_Handle(&u, FORWARD, STARTUP_READY, ROBOT_READY, &o, &s, &cmd);
     assert(u.page == UI_PAGE_FACTORY);
     LocalUi_Render(&u, STARTUP_READY, ROBOT_READY, &o, &s, &model);
-    assert(!strcmp(model.rows[1], UiStrings_Get(UI_TEXT_RETURN)) && model.rows[2][0] == 0);
+    assert(!strcmp(model.rows[2], UiStrings_Get(UI_TEXT_RETURN)) && model.rows[3][0] == 0);
     LocalUi_Handle(&u, BACK, STARTUP_READY, ROBOT_READY, &o, &s, &cmd);
-    for (unsigned i = 0; i < 4; ++i)
+    for (unsigned i = 0; i < 3; ++i)
         LocalUi_Handle(&u, ENCODER_NEXT, STARTUP_READY, ROBOT_READY, &o, &s, &cmd);
     LocalUi_Handle(&u, FORWARD, STARTUP_READY, ROBOT_READY, &o, &s, &cmd);
     assert(u.page == UI_PAGE_CUSTOM);
@@ -618,6 +621,375 @@ static void Test_Ui(void)
     puts("UI menu/factory protection/custom delete confirmation/status pages/debounce/encoder wrap/debug "
          "authority PASS");
 }
+static void Test_UiPreview(const UiModel *model, const char *path)
+{
+    uint8_t framebuffer[UI_FRAMEBUFFER_BYTES + 2];
+    assert(UiRaster_Render(model, framebuffer + 1) == ARM_OK);
+    FILE *preview = fopen(path, "wb");
+    assert(preview);
+    fprintf(preview, "P4\n128 64\n");
+    for (unsigned y = 0; y < 64; ++y)
+        for (unsigned bx = 0; bx < 16; ++bx)
+        {
+            unsigned char out = 0;
+            for (unsigned bit = 0; bit < 8; ++bit)
+                if (framebuffer[1 + (y / 8) * 128 + bx * 8 + bit] & (1U << (y % 8)))
+                    out |= (unsigned char)(0x80U >> bit);
+            assert(fwrite(&out, 1, 1, preview) == 1);
+        }
+    assert(fclose(preview) == 0);
+}
+static void Test_OfflineMenus(void)
+{
+    Test_Defaults();
+    Test_Mount();
+    size_t bytes = Test_BuildTrack(30);
+    const char *name = "A_very_long_personal_name.bin";
+    BusinessMock_PutFile("/tracks/custom/A_very_long_personal_name.bin", file_bytes, bytes);
+    StorageRequest scan = {.type = STORAGE_SCAN_TRACKS};
+    assert(Test_Request(&scan).result == TRACK_OK);
+    BusinessMock_SetOnline(false);
+    RobotControl control;
+    assert(RobotControl_Init(&control) == ARM_OK);
+    OperationManager operation;
+    OperationManager_Init(&operation, now_ms);
+    OperationManager_Step(&operation, &control, now_ms);
+    assert(operation.startup.state == STARTUP_WAIT_MOTORS && control.machine.state == ROBOT_DISABLED);
+    LocalUi ui;
+    LocalUi_Init(&ui);
+    StorageSnapshot storage;
+    StorageService_GetSnapshot(&storage);
+    UiModel model;
+    AppCommand cmd;
+    LocalUi_Render(&ui, operation.startup.state, ROBOT_DISABLED, &operation.snapshot, &storage, &model);
+    assert(!strcmp(model.rows[0], "主菜单[离线] 1/2"));
+    assert(LocalUi_Handle(&ui, FORWARD, STARTUP_WAIT_MOTORS, ROBOT_DISABLED,
+                          &operation.snapshot, &storage, &cmd) == false);
+    assert(ui.page == UI_PAGE_ACTIONS);
+    assert(!LocalUi_Handle(&ui, FORWARD, STARTUP_WAIT_MOTORS, ROBOT_DISABLED,
+                          &operation.snapshot, &storage, &cmd));
+    assert(ui.page == UI_PAGE_START_CONFIRM && ui.selected == 1 && !ui.pending_command);
+    LocalUi_Handle(&ui, ENCODER_PREV, STARTUP_WAIT_MOTORS, ROBOT_DISABLED,
+                   &operation.snapshot, &storage, &cmd);
+    assert(!LocalUi_Handle(&ui, FORWARD, STARTUP_WAIT_MOTORS, ROBOT_DISABLED,
+                          &operation.snapshot, &storage, &cmd));
+    assert(ui.show_error && !ui.pending_command);
+    LocalUi_Handle(&ui, BACK, STARTUP_WAIT_MOTORS, ROBOT_DISABLED, &operation.snapshot, &storage, &cmd);
+    assert(!ui.show_error && ui.page == UI_PAGE_ACTIONS && ui.selected == 0);
+    for (unsigned type = CMD_GO_HOME; type <= CMD_EXEC_CUSTOM; ++type)
+    {
+        cmd = (AppCommand){.source = CONTROL_SOURCE_LOCAL, .type = (AppCommandType)type};
+        strcpy(cmd.name, name);
+        assert(OperationManager_Command(&operation, &control, &cmd, now_ms) == ARM_NOT_READY);
+    }
+    cmd.type = CMD_RECORD_START;
+    assert(OperationManager_Command(&operation, &control, &cmd, now_ms) == ARM_NOT_READY);
+    assert(!MotorManager_IsArmed() && control.machine.state == ROBOT_DISABLED);
+    LocalUi_Handle(&ui, BACK, STARTUP_WAIT_MOTORS, ROBOT_DISABLED, &operation.snapshot, &storage, &cmd);
+    ui.selected = 2;
+    LocalUi_Handle(&ui, FORWARD, STARTUP_WAIT_MOTORS, ROBOT_DISABLED, &operation.snapshot, &storage, &cmd);
+    assert(ui.page == UI_PAGE_TF);
+    LocalUi_Handle(&ui, FORWARD, STARTUP_WAIT_MOTORS, ROBOT_DISABLED, &operation.snapshot, &storage, &cmd);
+    assert(ui.page == UI_PAGE_FILES);
+    UiDeviceStatus device = {.now_ms = 1500, .can_ready = true};
+    strcpy(device.version, "0.0.2");
+    LocalUi_SetDeviceStatus(&ui, &device);
+    LocalUi_Render(&ui, STARTUP_FAILED, ROBOT_DISABLED, &operation.snapshot, &storage, &model);
+    assert(model.scroll_selected && model.scroll_offset > 0 && model.selected == 1);
+    LocalUi_Handle(&ui, FORWARD, STARTUP_FAILED, ROBOT_DISABLED, &operation.snapshot, &storage, &cmd);
+    assert(ui.page == UI_PAGE_CUSTOM);
+    LocalUi_Handle(&ui, ENCODER_NEXT, STARTUP_FAILED, ROBOT_DISABLED, &operation.snapshot, &storage, &cmd);
+    LocalUi_Handle(&ui, FORWARD, STARTUP_FAILED, ROBOT_DISABLED, &operation.snapshot, &storage, &cmd);
+    assert(ui.page == UI_PAGE_DELETE_CONFIRM && ui.selected == 1);
+    LocalUi_Render(&ui, STARTUP_FAILED, ROBOT_DISABLED, &operation.snapshot, &storage, &model);
+    char exact_name[32];
+    assert(strlen(model.rows[1]) + strlen(model.rows[2]) < sizeof(exact_name));
+    strcpy(exact_name, model.rows[1]);
+    strcat(exact_name, model.rows[2]);
+    assert(!strcmp(exact_name, name) && !strcmp(model.rows[3], "[否] 是"));
+    assert(!LocalUi_Handle(&ui, FORWARD, STARTUP_FAILED, ROBOT_DISABLED, &operation.snapshot, &storage, &cmd));
+    assert(BusinessMock_FileExists("/tracks/custom/A_very_long_personal_name.bin"));
+    assert(ui.page == UI_PAGE_CUSTOM && ui.selected == 1);
+    LocalUi_Handle(&ui, FORWARD, STARTUP_FAILED, ROBOT_DISABLED, &operation.snapshot, &storage, &cmd);
+    LocalUi_Handle(&ui, ENCODER_PREV, STARTUP_FAILED, ROBOT_DISABLED, &operation.snapshot, &storage, &cmd);
+    assert(LocalUi_Handle(&ui, FORWARD, STARTUP_FAILED, ROBOT_DISABLED, &operation.snapshot, &storage, &cmd));
+    assert(cmd.type == CMD_DELETE_CUSTOM && !strcmp(cmd.name, name));
+    assert(OperationManager_Command(&operation, &control, &cmd, now_ms) == ARM_OK);
+    assert(operation.snapshot.storage_only && StorageService_ProcessOne());
+    OperationManager_Step(&operation, &control, now_ms + 5);
+    assert(operation.snapshot.state == OP_DONE && !operation.storage_ticket);
+    assert(!BusinessMock_FileExists("/tracks/custom/A_very_long_personal_name.bin"));
+    cmd.type = CMD_ACKNOWLEDGE;
+    assert(OperationManager_Command(&operation, &control, &cmd, now_ms) == ARM_OK);
+    assert(operation.snapshot.state == OP_IDLE && control.machine.state == ROBOT_DISABLED);
+    cmd.type = CMD_SCAN_TRACKS;
+    assert(OperationManager_Command(&operation, &control, &cmd, now_ms) == ARM_OK);
+    assert(StorageService_ProcessOne());
+    OperationManager_Step(&operation, &control, now_ms + 10);
+    assert(operation.snapshot.state == OP_DONE);
+    cmd.type = CMD_ACKNOWLEDGE;
+    assert(OperationManager_Command(&operation, &control, &cmd, now_ms) == ARM_OK);
+    OperationManager_Step(&operation, &control, now_ms + 16000);
+    assert(operation.startup.state == STARTUP_FAILED && !MotorManager_IsArmed());
+    LocalUi_Init(&ui);
+    LocalUi_Render(&ui, STARTUP_FAILED, ROBOT_DISABLED, &operation.snapshot, &storage, &model);
+    assert(!strcmp(model.rows[1], UiStrings_Get(UI_TEXT_EXECUTE)));
+    ui.page = UI_PAGE_DEVICE;
+    LocalUi_SetDeviceStatus(&ui, &device);
+    LocalUi_Render(&ui, STARTUP_FAILED, ROBOT_DISABLED, &operation.snapshot, &storage, &model);
+    assert(!strcmp(model.rows[1], UiStrings_Get(UI_TEXT_MOTOR_CONFIG)));
+    assert(!strcmp(model.rows[2], UiStrings_Get(UI_TEXT_FORCE_OFFLINE)));
+    device.force_online = true;
+    LocalUi_SetDeviceStatus(&ui, &device);
+    LocalUi_Render(&ui, STARTUP_FAILED, ROBOT_DISABLED, &operation.snapshot, &storage, &model);
+    assert(!strcmp(model.rows[2], UiStrings_Get(UI_TEXT_FORCE_CONFIG)));
+    device.force_calibrated = true;
+    LocalUi_SetDeviceStatus(&ui, &device);
+    LocalUi_Render(&ui, STARTUP_FAILED, ROBOT_DISABLED, &operation.snapshot, &storage, &model);
+    assert(!strcmp(model.rows[2], UiStrings_Get(UI_TEXT_FORCE_INVALID)));
+    device.can_ready = false;
+    LocalUi_SetDeviceStatus(&ui, &device);
+    LocalUi_Render(&ui, STARTUP_FAILED, ROBOT_DISABLED, &operation.snapshot, &storage, &model);
+    assert(!strcmp(model.rows[1], UiStrings_Get(UI_TEXT_CAN_ERROR)));
+    StorageService_Init();
+    cmd.type = CMD_SCAN_TRACKS;
+    assert(OperationManager_Command(&operation, &control, &cmd, now_ms) == ARM_OK);
+    assert(StorageService_ProcessOne());
+    OperationManager_Step(&operation, &control, now_ms + 20);
+    assert(operation.snapshot.state == OP_ERROR && operation.snapshot.track_result == TRACK_NOT_READY);
+    cmd.type = CMD_ACKNOWLEDGE;
+    assert(OperationManager_Command(&operation, &control, &cmd, now_ms) == ARM_OK);
+    control.machine.state = ROBOT_RUNNING;
+    cmd.type = CMD_SCAN_TRACKS;
+    assert(OperationManager_Command(&operation, &control, &cmd, now_ms) == ARM_NOT_READY);
+    control.machine.state = ROBOT_DISABLED;
+    assert(!MotorManager_IsArmed() && operation.startup.state == STARTUP_FAILED);
+    LocalUi_Init(&ui);
+    LocalUi_Render(&ui, STARTUP_FAILED, ROBOT_DISABLED, &operation.snapshot, &storage, &model);
+    uint8_t framebuffer[UI_FRAMEBUFFER_BYTES + 2];
+    memset(framebuffer, 0xA5, sizeof(framebuffer));
+    assert(UiRaster_Render(&model, framebuffer + 1) == ARM_OK);
+    assert(framebuffer[0] == 0xA5 && framebuffer[sizeof(framebuffer)-1] == 0xA5);
+    Test_UiPreview(&model, "ui_main.pbm");
+    ui.page = UI_PAGE_TF;
+    LocalUi_Render(&ui, STARTUP_FAILED, ROBOT_DISABLED, &operation.snapshot, &storage, &model);
+    Test_UiPreview(&model, "ui_tf.pbm");
+    ui.page = UI_PAGE_DELETE_CONFIRM;
+    ui.selected = 1;
+    strcpy(ui.custom_name, name);
+    LocalUi_Render(&ui, STARTUP_FAILED, ROBOT_DISABLED, &operation.snapshot, &storage, &model);
+    Test_UiPreview(&model, "ui_delete.pbm");
+    LocalInput input = {0};
+    assert(InputLocal_UpdateWithKey(&input, 0, false, false, false, 0) == UI_EVENT_NONE);
+    assert(InputLocal_UpdateWithKey(&input, 0, false, false, true, 10) == UI_EVENT_NONE);
+    assert(InputLocal_UpdateWithKey(&input, 0, false, false, true, 35) == ENCODER_PRESS);
+    assert(InputLocal_UpdateWithKey(&input, 0, false, false, true, 100) == UI_EVENT_NONE);
+    assert(InputLocal_UpdateWithKey(&input, 0, false, true, false, 110) == UI_EVENT_NONE);
+    assert(InputLocal_UpdateWithKey(&input, 0, false, true, false, 135) == BACK);
+    puts("Offline menu / failed startup browsing / disabled motion / confirmed TF maintenance / raster bounds / encoder key PASS");
+}
+static void Test_EncoderNavigation(void)
+{
+    LocalUi u;
+    LocalUi_Init(&u);
+    StorageSnapshot s = {.mounted = true, .count = 2, .factory_available = {true, false, false}};
+    strcpy(s.names[0], "Example.bin");
+    strcpy(s.names[1], "A_very_long_personal_name.bin");
+    OperationSnapshot o = {.state = OP_IDLE};
+    AppCommand cmd;
+    UiModel before, after;
+#define UI_EVENT(e) LocalUi_Handle(&u, (e), STARTUP_READY, ROBOT_READY, &o, &s, &cmd)
+    UI_EVENT(ENCODER_NEXT); UI_EVENT(ENCODER_NEXT); UI_EVENT(ENCODER_PRESS);
+    assert(u.page == UI_PAGE_TF && u.selected == 0);
+    UI_EVENT(ENCODER_NEXT); UI_EVENT(ENCODER_NEXT); UI_EVENT(ENCODER_NEXT); UI_EVENT(ENCODER_PRESS);
+    assert(u.page == UI_PAGE_MAIN && u.selected == 2);
+    UI_EVENT(ENCODER_PRESS); UI_EVENT(ENCODER_PRESS);
+    assert(u.page == UI_PAGE_FILES);
+    u.device.now_ms = 2000;
+    UI_EVENT(ENCODER_NEXT);
+    u.device.now_ms = 3500;
+    LocalUi_Render(&u, STARTUP_READY, ROBOT_READY, &o, &s, &before);
+    assert(before.scroll_selected && before.scroll_offset);
+    UI_EVENT(ENCODER_PRESS);
+    assert(u.page == UI_PAGE_CUSTOM);
+    u.device.now_ms = 9000;
+    UI_EVENT(ENCODER_NEXT); UI_EVENT(ENCODER_NEXT); UI_EVENT(ENCODER_PRESS);
+    assert(u.page == UI_PAGE_FILES && u.selected == 1);
+    LocalUi_Render(&u, STARTUP_READY, ROBOT_READY, &o, &s, &after);
+    assert(after.scroll_offset == before.scroll_offset);
+    UI_EVENT(ENCODER_NEXT); UI_EVENT(ENCODER_PRESS);
+    assert(u.page == UI_PAGE_TF && u.selected == 0);
+    UI_EVENT(ENCODER_NEXT); UI_EVENT(ENCODER_PRESS);
+    assert(u.page == UI_PAGE_TF_STATUS);
+    LocalUi_Render(&u, STARTUP_READY, ROBOT_READY, &o, &s, &after);
+    assert(after.has_selection && after.selected == 3 && !strcmp(after.rows[3], "返回"));
+    UI_EVENT(ENCODER_PRESS);
+    assert(u.page == UI_PAGE_TF && u.selected == 1);
+    UI_EVENT(ENCODER_NEXT); UI_EVENT(ENCODER_NEXT); UI_EVENT(ENCODER_PRESS);
+    UI_EVENT(ENCODER_NEXT); UI_EVENT(ENCODER_PRESS);
+    assert(u.page == UI_PAGE_DEVICE);
+    UI_EVENT(ENCODER_PRESS);
+    assert(u.page == UI_PAGE_SYSTEM);
+    UI_EVENT(ENCODER_PRESS);
+    assert(u.page == UI_PAGE_DEVICE && u.selected == 0);
+    UI_EVENT(ENCODER_NEXT); UI_EVENT(ENCODER_PRESS);
+    assert(u.page == UI_PAGE_MAIN && u.selected == 3);
+    UI_EVENT(ENCODER_NEXT); UI_EVENT(ENCODER_NEXT); UI_EVENT(ENCODER_PRESS);
+    assert(u.page == UI_PAGE_RECORD && u.selected == 1);
+    UI_EVENT(ENCODER_PRESS);
+    assert(u.page == UI_PAGE_MAIN && u.selected == 1);
+    UI_EVENT(ENCODER_PREV); UI_EVENT(ENCODER_PRESS);
+    UI_EVENT(ENCODER_NEXT); UI_EVENT(ENCODER_PRESS);
+    assert(u.page == UI_PAGE_FACTORY && u.selected == 1);
+    UI_EVENT(ENCODER_PRESS);
+    assert(u.page == UI_PAGE_ACTIONS && u.selected == 1);
+    for (unsigned n = 0; n < 5; ++n) UI_EVENT(ENCODER_NEXT);
+    UI_EVENT(ENCODER_PRESS);
+    assert(u.page == UI_PAGE_MAIN && u.selected == 0 && !u.navigation_depth);
+    UI_EVENT(ENCODER_PRESS); UI_EVENT(ENCODER_PRESS);
+    assert(u.page == UI_PAGE_START_CONFIRM && u.selected == 1);
+    assert(!UI_EVENT(ENCODER_PRESS)); /* Default Return submits no motion. */
+    assert(u.page == UI_PAGE_ACTIONS && u.selected == 0);
+    UI_EVENT(ENCODER_PRESS);
+    assert(u.selected == 1);
+    UI_EVENT(ENCODER_PREV);
+    assert(UI_EVENT(ENCODER_PRESS) && cmd.type == CMD_GO_HOME);
+    assert(u.pending_command);
+    assert(!UI_EVENT(ENCODER_NEXT) && u.selected == 0); /* Pending motion locks rotation. */
+    assert(UI_EVENT(ENCODER_PRESS) && cmd.type == CMD_SOFT_STOP); /* A new press cancels pending start. */
+    o = (OperationSnapshot){.state = OP_DONE, .aborted = true};
+    assert(LocalUi_Handle(&u, ENCODER_PRESS, STARTUP_READY, ROBOT_SOFT_STOPPED, &o, &s, &cmd));
+    assert(cmd.type == CMD_ACKNOWLEDGE && u.page == UI_PAGE_ACTIONS);
+    o.state = OP_IDLE;
+    UI_EVENT(ENCODER_PRESS);
+    assert(u.page == UI_PAGE_START_CONFIRM && u.selected == 1); /* Restart needs a new explicit choice. */
+    UI_EVENT(BACK);
+    assert(u.page == UI_PAGE_ACTIONS && u.selected == 0);
+    /* All starts use the same default-cancel confirmation, including Factory/Custom/Record. */
+    UI_EVENT(ENCODER_NEXT); UI_EVENT(ENCODER_PRESS);
+    assert(u.page == UI_PAGE_FACTORY && u.start_command == CMD_EXEC_FACTORY_SMALL && u.selected == 1);
+    UI_EVENT(ENCODER_PRESS);
+    for (unsigned n = 0; n < 3; ++n) UI_EVENT(ENCODER_NEXT);
+    UI_EVENT(ENCODER_PRESS); UI_EVENT(ENCODER_PRESS);
+    assert(u.page == UI_PAGE_START_CONFIRM && u.start_command == CMD_EXEC_CUSTOM && u.selected == 1);
+    UI_EVENT(ENCODER_PRESS); UI_EVENT(BACK); UI_EVENT(BACK);
+    UI_EVENT(ENCODER_NEXT); UI_EVENT(ENCODER_PRESS);
+    assert(u.page == UI_PAGE_RECORD && u.start_command == CMD_RECORD_START && u.selected == 1);
+    LocalUi_Render(&u, STARTUP_READY, ROBOT_READY, &o, &s, &after);
+    Test_UiPreview(&after, "ui_start.pbm");
+    /* Stop is independent of page focus and errors; dedicated keys retain their record semantics. */
+    u.page = UI_PAGE_DEVICE;
+    u.show_error = true;
+    o.state = OP_EXECUTING;
+    assert(LocalUi_Handle(&u, ENCODER_PRESS, STARTUP_READY, ROBOT_RUNNING, &o, &s, &cmd));
+    assert(cmd.type == CMD_SOFT_STOP);
+    unsigned selected = u.selected;
+    assert(!LocalUi_Handle(&u, ENCODER_NEXT, STARTUP_READY, ROBOT_RUNNING, &o, &s, &cmd));
+    assert(u.selected == selected);
+    assert(LocalUi_Handle(&u, ENCODER_PRESS, STARTUP_TO_HOME, ROBOT_STARTUP, &o, &s, &cmd));
+    assert(cmd.type == CMD_SOFT_STOP);
+    u.show_error = false;
+    o.state = OP_RECORDING;
+    assert(LocalUi_Handle(&u, FORWARD, STARTUP_READY, ROBOT_READY, &o, &s, &cmd) && cmd.type == CMD_RECORD_FINISH);
+    assert(LocalUi_Handle(&u, BACK, STARTUP_READY, ROBOT_READY, &o, &s, &cmd) && cmd.type == CMD_RECORD_CANCEL);
+    assert(LocalUi_Handle(&u, ENCODER_PRESS, STARTUP_READY, ROBOT_READY, &o, &s, &cmd) && cmd.type == CMD_SOFT_STOP);
+    o.state = OP_SOFT_STOPPING;
+    assert(!LocalUi_Handle(&u, ENCODER_PRESS, STARTUP_READY, ROBOT_RUNNING, &o, &s, &cmd));
+    o = (OperationSnapshot){.state = OP_EXECUTING, .progress_percent = 10};
+    LocalUi_Render(&u, STARTUP_READY, ROBOT_RUNNING, &o, &s, &after);
+    assert(!strcmp(after.rows[3], UiStrings_Get(UI_TEXT_ENCODER_STOP)));
+    Test_UiPreview(&after, "ui_running.pbm");
+    s.count = 0;
+    o.state = OP_IDLE;
+    LocalUi_Init(&u);
+    UI_EVENT(ENCODER_NEXT); UI_EVENT(ENCODER_NEXT); UI_EVENT(ENCODER_PRESS); UI_EVENT(ENCODER_PRESS);
+    assert(u.page == UI_PAGE_FILES);
+    LocalUi_Render(&u, STARTUP_READY, ROBOT_READY, &o, &s, &after);
+    assert(after.selected == 3 && !strcmp(after.rows[3], "返回"));
+    UI_EVENT(ENCODER_PRESS);
+    assert(u.page == UI_PAGE_TF);
+#undef UI_EVENT
+    puts("Encoder-only navigation/Return/scroll preservation/default cancel/all start confirmations/focus-free stop/old keys PASS");
+}
+static void Test_EncoderInputTransitions(void)
+{
+    LocalInput input = {0};
+    assert(InputLocal_UpdateWithKey(&input, 0, false, false, true, 0) == UI_EVENT_NONE);
+    assert(InputLocal_UpdateWithKey(&input, 0, false, false, true, 1000) == UI_EVENT_NONE); /* Held at boot. */
+    assert(InputLocal_UpdateWithKey(&input, 0, false, false, false, 1010) == UI_EVENT_NONE);
+    assert(InputLocal_UpdateWithKey(&input, 0, false, false, false, 1035) == UI_EVENT_NONE);
+    assert(InputLocal_UpdateWithKey(&input, 20, false, false, true, 1040) == ENCODER_NEXT);
+    assert(InputLocal_UpdateWithKey(&input, 20, false, false, true, 1065) == ENCODER_PRESS);
+    InputLocal_Discard(&input, 20); /* Entering a new page drops the remaining encoder burst. */
+    assert(input.remainder == 0);
+    assert(InputLocal_UpdateWithKey(&input, 20, false, false, true, 2000) == UI_EVENT_NONE);
+    InputLocal_Discard(&input, 20); /* Start -> running: the same press cannot become Stop. */
+    assert(InputLocal_UpdateWithKey(&input, 20, false, false, false, 2010) == UI_EVENT_NONE);
+    assert(InputLocal_UpdateWithKey(&input, 20, false, false, true, 2020) == UI_EVENT_NONE); /* Release bounce. */
+    assert(InputLocal_UpdateWithKey(&input, 20, false, false, true, 2045) == UI_EVENT_NONE);
+    assert(InputLocal_UpdateWithKey(&input, 20, false, false, false, 2050) == UI_EVENT_NONE);
+    assert(InputLocal_UpdateWithKey(&input, 20, false, false, false, 2075) == UI_EVENT_NONE);
+    assert(InputLocal_UpdateWithKey(&input, 20, false, false, true, 2080) == UI_EVENT_NONE);
+    assert(InputLocal_UpdateWithKey(&input, 20, false, false, false, 2090) == UI_EVENT_NONE); /* Press bounce. */
+    assert(InputLocal_UpdateWithKey(&input, 20, false, false, true, 2100) == UI_EVENT_NONE);
+    assert(InputLocal_UpdateWithKey(&input, 20, false, false, true, 2125) == ENCODER_PRESS); /* Fresh Stop. */
+    InputLocal_Discard(&input, 20);
+    assert(InputLocal_UpdateWithKey(&input, 20, false, false, true, 5000) == UI_EVENT_NONE);
+    assert(InputLocal_UpdateWithKey(&input, 20, false, false, false, 5010) == UI_EVENT_NONE);
+    assert(InputLocal_UpdateWithKey(&input, 20, false, false, false, 5035) == UI_EVENT_NONE);
+    assert(InputLocal_UpdateWithKey(&input, 20, true, false, false, 5040) == UI_EVENT_NONE);
+    assert(InputLocal_UpdateWithKey(&input, 20, true, false, false, 5065) == FORWARD);
+    assert(InputLocal_UpdateWithKey(&input, 20, true, false, false, 6000) == UI_EVENT_NONE);
+    assert(InputLocal_UpdateWithKey(&input, 20, true, true, false, 6010) == UI_EVENT_NONE);
+    assert(InputLocal_UpdateWithKey(&input, 20, true, true, false, 6035) == BACK);
+    LocalInput fresh = {0};
+    assert(InputLocal_UpdateWithKey(&fresh, 0, false, false, false, 0) == UI_EVENT_NONE);
+    assert(InputLocal_UpdateWithKey(&fresh, 0, false, false, true, 10) == UI_EVENT_NONE);
+    InputLocal_Discard(&fresh, 0);
+    assert(InputLocal_UpdateWithKey(&fresh, 0, false, false, true, 35) == ENCODER_PRESS);
+    puts("Release-before-repress/boot hold/press and release bounce/long hold/context flush/Forward and Back PASS");
+}
+static void Test_EncoderSoftStop(void)
+{
+    Test_Defaults();
+    Test_Mount();
+    OperationManager operation;
+    RobotControl control;
+    Test_Startup(&operation, &control);
+    AppCommand start = {.source = CONTROL_SOURCE_LOCAL, .type = CMD_GO_HOME};
+    assert(OperationManager_Command(&operation, &control, &start, now_ms) == ARM_OK);
+    assert(CommandManager_Submit(&start) == ARM_OK); /* A stop must also invalidate queued future commands. */
+    LocalUi ui;
+    LocalUi_Init(&ui);
+    StorageSnapshot storage;
+    StorageService_GetSnapshot(&storage);
+    AppCommand stop;
+    assert(LocalUi_Handle(&ui, ENCODER_PRESS, STARTUP_READY, ROBOT_RUNNING,
+                          &operation.snapshot, &storage, &stop));
+    assert(stop.type == CMD_SOFT_STOP);
+    assert(OperationManager_Command(&operation, &control, &stop, now_ms) == ARM_OK);
+    assert(!CommandManager_Take(&start));
+    for (unsigned n = 0; n < 200 && control.stopping.active; ++n) Test_Tick(&operation, &control);
+    Test_Tick(&operation, &control);
+    assert(control.machine.state == ROBOT_SOFT_STOPPED && !control.trajectory.active && !operation.player.active);
+    assert(operation.snapshot.aborted);
+    for (unsigned n = 0; n < 4; ++n) Test_Tick(&operation, &control);
+    assert(control.machine.state == ROBOT_SOFT_STOPPED); /* No automatic resume. */
+    assert(LocalUi_Handle(&ui, ENCODER_PRESS, STARTUP_READY, ROBOT_SOFT_STOPPED,
+                          &operation.snapshot, &storage, &stop));
+    assert(stop.type == CMD_ACKNOWLEDGE);
+    assert(OperationManager_Command(&operation, &control, &stop, now_ms) == ARM_OK);
+    assert(control.machine.state == ROBOT_READY && !control.trajectory.active);
+    assert(!LocalUi_Handle(&ui, ENCODER_PRESS, STARTUP_READY, ROBOT_READY,
+                          &operation.snapshot, &storage, &start));
+    assert(ui.page == UI_PAGE_ACTIONS); /* Acknowledge only returns; it never replays Start. */
+    /* Original physical/CMD soft-stop route still reaches the same latched stop state. */
+    OperationManager_SoftStop(&operation, &control, now_ms);
+    for (unsigned n = 0; n < 200 && control.stopping.active; ++n) Test_Tick(&operation, &control);
+    Test_Tick(&operation, &control);
+    assert(control.machine.state == ROBOT_SOFT_STOPPED && operation.snapshot.aborted);
+    puts("Encoder command reaches existing SoftStop/queue clear/latched hold/no automatic restart/dedicated stop regression PASS");
+}
 int main(void)
 {
     Test_Defaults();
@@ -630,6 +1002,10 @@ int main(void)
     Test_Operations();
     Test_SafetyEdges();
     Test_Ui();
+    Test_OfflineMenus();
+    Test_EncoderNavigation();
+    Test_EncoderInputTransitions();
+    Test_EncoderSoftStop();
     puts("ALL BUSINESS TESTS PASS");
     return 0;
 }

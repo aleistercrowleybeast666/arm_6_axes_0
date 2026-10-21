@@ -9,8 +9,8 @@ def edit(name, transform):
     path.write_text(transform(path.read_text(encoding='utf-8')), encoding='utf-8', newline='\n')
 
 def block(text, tag, content):
-    pattern = rf'(/\* USER CODE BEGIN {re.escape(tag)} \*/).*?(/\* USER CODE END {re.escape(tag)} \*/)'
-    result, n = re.subn(pattern, lambda m: m[1]+'\n'+content+'\n'+m[2], text, flags=re.S)
+    pattern = rf'^([ \t]*)(/\* USER CODE BEGIN {re.escape(tag)} \*/).*?(/\* USER CODE END {re.escape(tag)} \*/)'
+    result, n = re.subn(pattern, lambda m: m[1]+m[2]+'\n'+content+'\n'+m[1]+m[3], text, flags=re.S | re.M)
     if n != 1:
         raise RuntimeError(f'Missing/duplicate CubeMX user block: {tag}')
     return result
@@ -20,7 +20,8 @@ def main_source(s):
     s = block(s, '2', '  App_Init();')
     s = block(s, 'WHILE', '  App_Fatal(APP_FATAL_RTOS_OBJECT);\n  while (1)\n  {')
     s = block(s, 'Error_Handler_Debug', '  App_Fatal(APP_FATAL_HAL);')
-    s = s.replace('if (htim->Instance == TIM6)', 'if (htim != NULL && htim->Instance == BOARD_HAL_TICK_INSTANCE)')
+    s = re.sub(r'if \(htim->Instance == TIM\d+\)',
+               'if (htim != NULL && htim->Instance == BOARD_HAL_TICK_INSTANCE)', s)
     return s
 
 def can_source(s):
@@ -84,17 +85,17 @@ host:
 \tcmake --build --preset host
 \tctest --preset host
 ''', encoding='utf-8', newline='\n')
-print('CubeMX static application integration complete')
-
 # Own generated handles behind accessors; keep HAL sources untouched.
 peripherals=[('sdio',[('SD_HandleTypeDef','hsd','Sd_GetHandle'),('DMA_HandleTypeDef','hdma_sdio_rx','Sd_GetRxDma'),('DMA_HandleTypeDef','hdma_sdio_tx','Sd_GetTxDma')]),
- ('i2c',[('I2C_HandleTypeDef','hi2c1','I2c_GetHandle')]),('tim',[('TIM_HandleTypeDef','htim3','Encoder_GetHandle')]),('usart',[('UART_HandleTypeDef','huart1','Uart_GetHandle')])]
+ ('i2c',[('I2C_HandleTypeDef','hi2c2','I2c_GetHandle')]),('tim',[('TIM_HandleTypeDef','htim3','Encoder_GetHandle')]),('usart',[('UART_HandleTypeDef','huart2','Uart_GetHandle')])]
 for module, handles in peripherals:
     c=ROOT/f'Core/Src/{module}.c'; h=ROOT/f'Core/Inc/{module}.h'
     if not c.exists():continue
     source=c.read_text(encoding='utf-8');header=h.read_text(encoding='utf-8');accessors=[];prototypes=[]
     for typ,var,getter in handles:
-        source=re.sub(r'(?m)^(?:static )?'+typ+' '+var+';', 'static '+typ+' '+var+';',source)
+        source,count=re.subn(r'(?m)^(?:static )?'+typ+' '+var+';', 'static '+typ+' '+var+';',source)
+        if count != 1:
+            raise RuntimeError(f'Missing/duplicate generated handle: {var}; check IOC wiring')
         header=re.sub(r'(?m)^extern '+typ+' '+var+';\n?', '', header)
         accessors.append(f'{typ} *{getter}(void) {{ return &{var}; }}');prototypes.append(f'{typ} *{getter}(void);')
     c.write_text(block(source,'1','\n'.join(accessors)),encoding='utf-8',newline='\n')
@@ -114,3 +115,4 @@ for module in ['dma','i2c','sdio','tim','usart']:
     for folder,suffix in [('Inc','h'),('Src','c')]:
         path=ROOT/f'Core/{folder}/{module}.{suffix}'
         path.write_text(path.read_text(encoding='utf-8').rstrip()+'\n',encoding='utf-8',newline='\n')
+print('CubeMX static application integration complete')

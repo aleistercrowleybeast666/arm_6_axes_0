@@ -57,24 +57,24 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define UI_FORWARD_Pin GPIO_PIN_2
-#define UI_FORWARD_GPIO_Port GPIOE
-#define UI_BACK_Pin GPIO_PIN_3
-#define UI_BACK_GPIO_Port GPIOE
-#define SOFT_STOP_Pin GPIO_PIN_4
-#define SOFT_STOP_GPIO_Port GPIOE
-#define SOFT_STOP_EXTI_IRQn EXTI4_IRQn
-#define ENCODER_KEY_Pin GPIO_PIN_5
-#define ENCODER_KEY_GPIO_Port GPIOE
-#define DCDC_PG_Pin GPIO_PIN_6
+#define DCDC_PG_Pin GPIO_PIN_2
 #define DCDC_PG_GPIO_Port GPIOE
+#define ENCODER_KEY_Pin GPIO_PIN_4
+#define ENCODER_KEY_GPIO_Port GPIOC
+#define UI_START_Pin GPIO_PIN_9
+#define UI_START_GPIO_Port GPIOE
+#define UI_BACK_Pin GPIO_PIN_10
+#define UI_BACK_GPIO_Port GPIOE
+#define SOFT_STOP_Pin GPIO_PIN_11
+#define SOFT_STOP_GPIO_Port GPIOE
+#define SOFT_STOP_EXTI_IRQn EXTI15_10_IRQn
+#define HX711_DOUT_Pin GPIO_PIN_8
+#define HX711_DOUT_GPIO_Port GPIOD
+#define HX711_DOUT_EXTI_IRQn EXTI9_5_IRQn
+#define HX711_SCK_Pin GPIO_PIN_9
+#define HX711_SCK_GPIO_Port GPIOD
 #define TF_DETECT_Pin GPIO_PIN_7
 #define TF_DETECT_GPIO_Port GPIOC
-#define HX711_DOUT_Pin GPIO_PIN_0
-#define HX711_DOUT_GPIO_Port GPIOE
-#define HX711_DOUT_EXTI_IRQn EXTI0_IRQn
-#define HX711_SCK_Pin GPIO_PIN_1
-#define HX711_SCK_GPIO_Port GPIOE
 
 /* USER CODE BEGIN Private defines */
 

@@ -14,4 +14,4 @@ CyberGear 资料链接、固定参考 SHA 和差异见 CYBERGEAR_PROTOCOL；参�
 
 v0.0.2新增FatFs原始源码：Middlewares/Third_Party/FatFs/src，许可/版权见ff.c和相关文件头（ChaN及ST适配标头），未改第三方算法。HAL新增SD/UART/I2C等仍来自上述Cube包。
 
-OLED菜单仅提交所需字符位图，不分发字体文件；当前位图由本机Microsoft YaHei渲染。tools/generate_ui_glyphs.py接受自行提供的字体，可替换为适合产品分发授权的字库；正式产品字库授权需另确认。
+OLED菜单使用 Noto Sans Mono CJK SC Regular（黑体风格），来源为 notofonts/noto-cjk 的 Sans2.004 标签，官方文件 `Sans/Mono/NotoSansMonoCJKsc-Regular.otf`，SHA256 `ec04cc376b34887cedbdf84074e2e226ed2761eeabdcb9173fc1dd7bfd153ef7`。依 SIL Open Font License 1.1 生成菜单及ASCII子集位图，版权及完整许可保存在 `UI/Backends/FONT_LICENSE.txt`。仅提交位图，不分发完整16 MB字体文件。`tools/generate_ui_glyphs.py` 固定16px单元、同字号和baseline=12，不再逐字符垂直居中；构建不依赖字体或Pillow。

@@ -32,7 +32,6 @@ extern "C" {
 
 /* USER CODE END Includes */
 
-extern TIM_HandleTypeDef htim3;
 
 /* USER CODE BEGIN Private defines */
 
@@ -49,4 +48,3 @@ TIM_HandleTypeDef *Encoder_GetHandle(void);
 #endif
 
 #endif /* __TIM_H__ */
-
