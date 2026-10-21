@@ -12,6 +12,8 @@
 #include "task.h"
 #include "version.h"
 #include "text_format.h"
+#include "hmi_uart.h"
+#include "hmi_dgus.h"
 static StaticTask_t sensor_tcb, ui_tcb, storage_tcb, debug_tcb;
 static StackType_t sensor_stack[512], ui_stack[1536], storage_stack[2048], debug_stack[1024];
 static TaskHandle_t sensor_task, storage_task;
@@ -46,6 +48,12 @@ static void UiTask(void *argument)
     LocalUi ui;
     LocalUi_Init(&ui);
     LocalInput input = {0};
+#if ARM_ENABLE_DGUS_HMI
+    static HmiDgus hmi;
+    HmiDgus_Init(&hmi, ARM_DGUS_CRC != 0);
+    (void)HmiUart_Init(); /* Optional UI failure never changes robot readiness or motor output gates. */
+    uint32_t last_hmi_publish = 0;
+#endif
     uint32_t last_render = 0, revision = 0, display_retry_ms = 0;
     bool display_ready = false;
     bool have_input_context = false;
@@ -80,6 +88,18 @@ static void UiTask(void *argument)
             revision = a.command_revision;
             LocalUi_SetCommandResult(&ui, a.command_result);
         }
+#if ARM_ENABLE_DGUS_HMI
+        if (HmiUart_Poll())
+            HmiDgus_ResetLink(&hmi);
+        HmiDgus_Sync(&hmi, &ui, &a, &s);
+        for (unsigned budget = 0; budget < 64; ++budget)
+        {
+            uint8_t byte;
+            if (!HmiUart_Read(&byte))
+                break;
+            HmiDgus_Push(&hmi, byte, now);
+        }
+#endif
         uint16_t encoder_count = (uint16_t)__HAL_TIM_GET_COUNTER(Encoder_GetHandle());
         if (have_input_context && (input_startup != a.startup || input_robot != a.robot ||
                                    input_operation != a.operation.state))
@@ -97,7 +117,27 @@ static void UiTask(void *argument)
                               HAL_GPIO_ReadPin(BOARD_ENCODER_KEY_PORT, BOARD_ENCODER_KEY_PIN) == GPIO_PIN_RESET,
                               now);
         AppCommand cmd;
-        bool submitted = LocalUi_Handle(&ui, event, a.startup, a.robot, &a.operation, &s, &cmd);
+        bool hmi_stop = false;
+#if ARM_ENABLE_DGUS_HMI
+        UiEvent touch_event;
+        bool touch_stop;
+        if (HmiDgus_TakeEvent(&hmi, &touch_event, &touch_stop))
+        {
+            hmi_stop = touch_stop;
+            if (event == UI_EVENT_NONE)
+                event = touch_event;
+        }
+        if (event != UI_EVENT_NONE)
+            HmiDgus_Invalidate(&hmi); /* Physical input also consumes the published context. */
+#endif
+        bool submitted;
+        if (hmi_stop)
+        {
+            cmd = (AppCommand){.type = CMD_SOFT_STOP, .source = CONTROL_SOURCE_LOCAL};
+            submitted = true;
+        }
+        else
+            submitted = LocalUi_Handle(&ui, event, a.startup, a.robot, &a.operation, &s, &cmd);
         if (submitted)
         {
             if (cmd.type == CMD_SOFT_STOP)
@@ -118,6 +158,14 @@ static void UiTask(void *argument)
             }
             if (display_ready)
                 display_ready = Display_GetBackend()->render(&model) == ARM_OK;
+#if ARM_ENABLE_DGUS_HMI
+            HmiDgus_Sync(&hmi, &ui, &a, &s);
+            if ((uint32_t)(now - last_hmi_publish) >= HMI_PUBLISH_PERIOD_MS)
+            {
+                (void)HmiDgus_Publish(&hmi, &ui, &a, &s, &model, HmiUart_Write, NULL);
+                last_hmi_publish = now;
+            }
+#endif
             last_render = now;
         }
         vTaskDelay(pdMS_TO_TICKS(10));

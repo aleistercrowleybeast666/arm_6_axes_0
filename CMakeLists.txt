@@ -4,6 +4,8 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(ARM_BUILD_FIRMWARE "Build STM32F407 target" OFF)
+option(ARM_ENABLE_DGUS_HMI "Enable candidate USART1 DGUSII adapter (wiring confirmation required)" OFF)
+option(ARM_DGUS_CRC "Use DGUSII CRC16; screen CFG 0x05.7 must match" ON)
 set(APP_DIRS RobotMath RobotMotion Teach Task Motor Safety App BSP Drivers/CyberGear Track Storage Sensors UI Debug Motor/Backends)
 set(PORTABLE_SOURCES
     RobotMath/robot_math_types.c RobotMath/robot_geometry.c RobotMath/robot_fk.c
@@ -17,6 +19,8 @@ list(APPEND PORTABLE_SOURCES ${BUSINESS_SOURCES} Motor/Backends/cybergear_backen
     Task/factory_recipes.c Sensors/Backends/hx711_decode.c Safety/soft_stop.c BSP/text_format.c)
 add_library(robot_core STATIC ${PORTABLE_SOURCES})
 target_include_directories(robot_core PUBLIC ${APP_DIRS})
+target_compile_definitions(robot_core PUBLIC ARM_ENABLE_DGUS_HMI=$<BOOL:${ARM_ENABLE_DGUS_HMI}>
+    ARM_DGUS_CRC=$<BOOL:${ARM_DGUS_CRC}>)
 target_compile_options(robot_core PRIVATE -Wall -Wextra -Werror -Wdouble-promotion -ffunction-sections -fdata-sections)
 if(ARM_BUILD_FIRMWARE)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
@@ -44,7 +48,7 @@ if(ARM_BUILD_FIRMWARE)
         Core/Src/sdio.c Core/Src/dma.c Core/Src/i2c.c Core/Src/tim.c Core/Src/usart.c
         Core/Src/stm32f4xx_it.c Core/Src/stm32f4xx_hal_msp.c Core/Src/stm32f4xx_hal_timebase_tim.c
         Core/Src/system_stm32f4xx.c startup_stm32f407xx.s
-        App/app_tasks.c App/service_tasks.c App/version.c BSP/bsp_can.c BSP/can_transport.c BSP/syscall_stubs.c
+        App/app_tasks.c App/service_tasks.c App/version.c BSP/bsp_can.c BSP/can_transport.c BSP/syscall_stubs.c BSP/hmi_uart.c
         Storage/fatfs_backend.c Storage/storage_disk.c Sensors/Backends/hx711.c
         UI/Backends/ssd1306.c Debug/debug_uart.c)
     add_dependencies(arm_6_axes_0 version_metadata)
@@ -74,6 +78,18 @@ else()
     target_include_directories(business_tests PRIVATE tests/host)
     target_compile_options(business_tests PRIVATE -Wall -Wextra -Werror -UNDEBUG)
     add_test(NAME robot_business COMMAND business_tests)
+    add_executable(hmi_tests tests/host/test_hmi.c tests/host/business_mock.c tests/host/platform_mock.c)
+    target_link_libraries(hmi_tests PRIVATE robot_core m)
+    target_include_directories(hmi_tests PRIVATE tests/host)
+    target_compile_options(hmi_tests PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+    add_test(NAME dgus_hmi COMMAND hmi_tests)
+    foreach(hmi_enabled RANGE 0 1)
+        add_executable(hmi_uart_test_${hmi_enabled} tests/host/test_hmi_uart.c BSP/hmi_uart.c)
+        target_include_directories(hmi_uart_test_${hmi_enabled} PRIVATE tests/host/hmi_fakes ${APP_DIRS})
+        target_compile_definitions(hmi_uart_test_${hmi_enabled} PRIVATE ARM_ENABLE_DGUS_HMI=${hmi_enabled})
+        target_compile_options(hmi_uart_test_${hmi_enabled} PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+        add_test(NAME dgus_uart_gate_${hmi_enabled} COMMAND hmi_uart_test_${hmi_enabled})
+    endforeach()
     target_compile_definitions(business_tests PRIVATE TEST_VECTOR_DIR="${CMAKE_SOURCE_DIR}/tests/vectors")
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     add_test(NAME track_tool COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/host/test_track_tool.py)

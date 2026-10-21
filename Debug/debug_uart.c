@@ -3,6 +3,7 @@
 #include "usart.h"
 #include "board_config.h"
 #include "platform_lock.h"
+#include "hmi_uart.h"
 #include <string.h>
 #define DEBUG_RX_BYTES 256U
 #define DEBUG_TX_BYTES 512U
@@ -99,6 +100,7 @@ void DebugUart_Poll(uint32_t now)
 }
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *u)
 {
+    HmiUart_RxComplete(u);
     if (u != Uart_GetHandle() || u->Instance != BOARD_UART_INSTANCE)
         return;
     unsigned next = (rx_head + 1) % DEBUG_RX_BYTES;
@@ -113,11 +115,13 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *u)
 }
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *u)
 {
+    HmiUart_TxComplete(u);
     if (u == Uart_GetHandle() && u->Instance == BOARD_UART_INSTANCE)
         tx_active = false;
 }
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *u)
 {
+    HmiUart_Error(u);
     if (u == Uart_GetHandle() && u->Instance == BOARD_UART_INSTANCE)
         rx_error = true;
 }

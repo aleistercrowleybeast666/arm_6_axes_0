@@ -48,6 +48,12 @@ CyberGear 手册 ±4π 与部分开源实现 ±12.5 的差异见协议文档；�
 
 ## 文档
 
+串口屏第一阶段位于独立 `feature/dwin-dgusii-hmi` 分支，基线标签为
+`pre-hmi-baseline-2026-10-21`（`b8e050bcc8370b706c4f6ccbc4ae8f9c073de41a`）。
+已加入 DGUSII 协议、界面事件/变量接口及可关闭的 USART1 软件适配，默认关闭；
+屏幕接口待确认，尚未生成可下载的 DGUS 页面工程、未刷写或运行硬件。
+菜单假设、VP 表、离线测试和回滚方式见 [DWIN_HMI](docs/DWIN_HMI.md)。
+
 - [整机架构与RTOS](docs/SYSTEM_ARCHITECTURE.md)、[普通用户流程](docs/USER_WORKFLOW.md)
 - [轨迹格式与PC工具](docs/TRACK_FORMAT.md)、[TF所有权与保存](docs/STORAGE.md)
 - [压力与校准](docs/FORCE_SENSOR.md)、[本地菜单](docs/UI_LOCAL.md)、[电机替换接口](docs/MOTOR_BACKEND.md)
